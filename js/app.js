@@ -203,8 +203,8 @@ async function render() {
   try { await r(arg); } catch (e) { console.error(e); view.innerHTML = `<div class="card error">Errore: ${esc(e.message)}</div>`; }
   updateStatus();
 }
-const TAB_OF = { inventario: "home", storico: "menu", inv: "menu", operatori: "menu", impostazioni: "menu", materiale: "materiali" };
-const BACK_OF = { storico: "menu", inv: "storico", operatori: "menu", impostazioni: "menu", materiale: "materiali" };
+const TAB_OF = { inventario: "home", storico: "menu", inv: "menu", audit: "menu", operatori: "menu", impostazioni: "menu", materiale: "materiali" };
+const BACK_OF = { storico: "menu", inv: "storico", audit: "menu", operatori: "menu", impostazioni: "menu", materiale: "materiali" };
 const go = (h) => { if (location.hash === `#${h}`) render(); else location.hash = h; };
 const setTitle = (t) => { $("#title").textContent = t; };
 
@@ -229,7 +229,7 @@ routes.home = async () => {
     : `<button class="bigbtn" id="newInv">📦 Nuovo inventario</button>`}
     <div class="grid2">
       <a class="tile" href="#giacenze"><b>${giac.length}</b><span>materiali in archivio</span></a>
-      <a class="tile ${sotto.length ? "alert" : ""}" href="#giacenze"><b>${sotto.length}</b><span>sotto scorta</span></a>
+      <a class="tile ${sotto.length ? "alert" : ""}" href="#giacenze/sotto"><b>${sotto.length}</b><span>sotto scorta</span></a>
     </div>
     ${ultimo ? `<a class="card link" href="#inv/${ultimo.id}">
         <small class="muted">Ultimo inventario</small>
@@ -282,7 +282,10 @@ async function renderInventario(inv) {
     const m = matMap.get(r.materiale_id) || { nome: "?", barcode: "" };
     return `<div class="line" data-id="${r.id}">
       <div class="info"><b>${esc(m.nome)}</b><small>${esc(m.barcode)} · ${r.pezzi_per_scatola} pz/sc · ${r.esito === "manuale" ? "✍ manuale" : "📷 scansionato"}</small></div>
-      <div class="qty"><button class="q" data-act="minus">−</button><span data-act="edit">${r.scatole}</span><button class="q" data-act="plus">+</button></div>
+      <div class="row">
+        <div class="qty"><button class="q" data-act="minus">−</button><span data-act="edit">${r.scatole}</span><button class="q" data-act="plus">+</button></div>
+        <button class="btn small danger ghost" data-act="del" title="Elimina scansione">🗑</button>
+      </div>
     </div>`;
   };
 
@@ -365,6 +368,19 @@ async function renderInventario(inv) {
     } else if (act === "undo") {
       await db.del("righe", r.id);
       await cloud.audit("riga_ripristinata", "inventario", inv.id, { materiale_id: r.materiale_id });
+      return refresh();
+    } else if (act === "del") {
+      const m = matMap.get(r.materiale_id);
+      if (!(await confirmDialog(`Rimuovere la scansione di "${m?.nome || "materiale"}" da questo inventario?`, "Rimuovi", true))) return;
+      await db.del("righe", r.id);
+      await cloud.audit("scansione_eliminata", "inventario", inv.id, {
+        materiale_id: r.materiale_id,
+        materiale_nome: m?.nome,
+        barcode: m?.barcode,
+        scatole: r.scatole,
+        esito: r.esito
+      });
+      toast("Scansione rimossa");
       return refresh();
     }
     r.rilevato_at = nowISO(); r.operatore_id = ME.id;
@@ -558,12 +574,58 @@ routes.materiale = async (id) => {
       <input name="min" type="number" inputmode="numeric" min="0" value="${m.scorta_minima || 0}" ${isMaster ? "" : "readonly"}>
       ${isMaster ? `<label class="check"><input type="checkbox" name="attivo" ${m.attivo !== false ? "checked" : ""}> Attivo (incluso nei controlli d'inventario)</label>` : ""}
       <button class="btn primary block">Salva modifiche</button>
+      ${isMaster ? `
+        <button type="button" class="btn danger ghost block" id="delMat">🗑 Elimina o dismetti materiale…</button>
+      ` : ""}
     </form>
     <div class="card">
       <small class="muted">Giacenza attuale</small>
       <div><b>${giac?.scatole ?? "–"}</b> scatole${giac?.totale != null ? ` (${giac.totale} pezzi)` : ""}</div>
       <small class="muted">${giac?.rilevato_il ? `rilevata il ${fmtDT(giac.rilevato_il)}` : "mai rilevata"}</small>
     </div>`;
+
+  if (isMaster && $("#delMat")) {
+    $("#delMat").onclick = async () => {
+      const v = await formDialog({
+        title: "Dismetti o elimina materiale",
+        intro: `<p>Stai per rimuovere <b>${esc(m.nome)}</b> dall'uso attivo.</p>`,
+        fields: [
+          { name: "motivo", label: "Motivo (es. prodotto fuori produzione, errore di inserimento)", required: true },
+          { name: "tipo", label: "Azione", type: "select", value: "disattiva", options: [
+            { value: "disattiva", label: "Dismetti (non comparirà più negli inventari, conserva storico)" },
+            { value: "elimina", label: "Elimina definitivamente dall'archivio" }
+          ]}
+        ],
+        submit: "Conferma"
+      });
+      if (!v) return;
+
+      if (v.tipo === "disattiva") {
+        m.attivo = false;
+        await salvaMateriale(m, "materiale_dismesso");
+        await cloud.audit("materiale_dismesso", "materiale", m.id, {
+          nome: m.nome,
+          barcode: m.barcode,
+          motivo: v.motivo
+        });
+        toast("Materiale dismesso: non apparirà più negli inventari");
+      } else {
+        await db.del("materiali", m.id);
+        if (cloud.configured) {
+          await cloud.sb.from("materiali").delete().eq("id", m.id);
+        }
+        await cloud.audit("materiale_eliminato_definitivamente", "materiale", m.id, {
+          nome: m.nome,
+          barcode: m.barcode,
+          motivo: v.motivo
+        });
+        toast("Materiale eliminato definitivamente");
+      }
+      cloud.sync();
+      go("materiali");
+    };
+  }
+
   $("#mf").onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target.elements;
@@ -581,28 +643,54 @@ routes.materiale = async (id) => {
 // ------------------------------------------------------------------
 // GIACENZE
 // ------------------------------------------------------------------
-routes.giacenze = async () => {
+routes.giacenze = async (filtroIniziale) => {
   setTitle("Giacenze");
   const giac = await calcolaGiacenze();
-  let filtro = "tutti";
+  const sottoList = giac.filter((g) => g.sotto);
+  let filtro = filtroIniziale === "sotto" ? "sotto" : "tutti";
+
   view.innerHTML = `
-    <div class="row chips"><button class="chip active" data-f="tutti">Tutti</button>
-      <button class="chip" data-f="sotto">Sotto scorta (${giac.filter((g) => g.sotto).length})</button></div>
-    <input type="search" id="q" placeholder="Cerca">
+    <div class="row chips">
+      <button class="chip ${filtro === "tutti" ? "active" : ""}" data-f="tutti">Tutti i materiali (${giac.length})</button>
+      <button class="chip ${filtro === "sotto" ? "active" : ""}" data-f="sotto">⚠ Sotto scorta (${sottoList.length})</button>
+    </div>
+    <input type="search" id="q" placeholder="Cerca materiale, categoria o barcode">
     <div class="card list" id="gList"></div>
-    <div class="row pdfbar"><button class="btn" id="pOpen">📄 Apri PDF</button><button class="btn" id="pPrint">🖨 Stampa</button><button class="btn" id="pShare">↗ Condividi</button></div>`;
+    <div class="row pdfbar">
+      <button class="btn" id="pOpen">📄 Apri PDF</button>
+      <button class="btn" id="pPrint">🖨 Stampa</button>
+      <button class="btn" id="pShare">↗ Condividi</button>
+    </div>`;
+
   const draw = () => {
     const q = $("#q").value.toLowerCase();
     const list = giac.filter((g) => (filtro === "tutti" || g.sotto) && (!q || `${g.nome} ${g.categoria} ${g.barcode}`.toLowerCase().includes(q)));
     $("#gList").innerHTML = list.length ? list.map((g) => `<a class="line link ${g.sotto ? "low" : ""}" href="#materiale/${g.id}">
-      <div class="info"><b>${esc(g.nome)}</b><small>${esc(g.categoria || "—")} · ${g.rilevato_il ? fmtDT(g.rilevato_il) : "mai rilevato"}</small></div>
-      <div class="right"><b>${g.scatole ?? "–"}</b><small>${g.scorta_minima ? `min ${g.scorta_minima}` : "scatole"}</small></div></a>`).join("")
-      : `<p class="muted">Nessun materiale.</p>`;
+      <div class="info">
+        <b>${esc(g.nome)}</b>
+        <small>${esc(g.categoria || "—")} · ${g.rilevato_il ? fmtDT(g.rilevato_il) : "mai rilevato"}</small>
+      </div>
+      <div class="right">
+        <b class="${g.sotto ? "red" : ""}">${g.scatole ?? "–"}</b>
+        <small>${g.scorta_minima > 0 ? `min: ${g.scorta_minima} sc` : "scatole"}</small>
+      </div></a>`).join("")
+      : `<p class="muted">${filtro === "sotto" ? "Ottimo! Nessun materiale attualmente sotto scorta." : "Nessun materiale trovato."}</p>`;
   };
+
   draw();
   $("#q").oninput = draw;
-  $$(".chip").forEach((c) => c.onclick = () => { $$(".chip").forEach((x) => x.classList.remove("active")); c.classList.add("active"); filtro = c.dataset.f; draw(); });
-  const make = () => pdf.giacenzePdf({ giacenze: giac, operatoreStampa: ME.nome });
+  $$(".chip").forEach((c) => c.onclick = () => {
+    $$(".chip").forEach((x) => x.classList.remove("active"));
+    c.classList.add("active");
+    filtro = c.dataset.f;
+    location.hash = filtro === "sotto" ? "giacenze/sotto" : "giacenze";
+    draw();
+  });
+
+  const make = () => {
+    const datiExport = filtro === "sotto" ? sottoList : giac;
+    return pdf.giacenzePdf({ giacenze: datiExport, operatoreStampa: ME.nome });
+  };
   $("#pOpen").onclick = () => { pdf.openPdf(make()); cloud.audit("pdf_giacenze", "report", null); };
   $("#pPrint").onclick = () => { pdf.printPdf(make()); cloud.audit("pdf_giacenze_stampa", "report", null); };
   $("#pShare").onclick = () => { pdf.sharePdf(make()); cloud.audit("pdf_giacenze_condiviso", "report", null); };
@@ -709,10 +797,49 @@ routes.menu = async () => {
   setTitle("Menu");
   view.innerHTML = `<div class="card list">
     <a class="line link" href="#storico"><div class="info"><b>🗂 Storico inventari</b></div></a>
+    ${ME.ruolo === "master" ? `<a class="line link" href="#audit"><div class="info"><b>📋 Registro attività (Audit log)</b><small>chi ha fatto cosa, modifiche ed eliminazioni</small></div></a>` : ""}
     ${ME.ruolo === "master" && !ME.locale ? `<a class="line link" href="#operatori"><div class="info"><b>👥 Operatori</b><small>approvazione e ruoli</small></div></a>` : ""}
     <a class="line link" href="#impostazioni"><div class="info"><b>⚙ Impostazioni e backup</b></div></a>
   </div>
   <p class="muted center">Diastock v1.0 · ${esc(ME.nome)}</p>`;
+};
+
+routes.audit = async () => {
+  setTitle("Registro attività");
+  if (ME.ruolo !== "master") { go("menu"); return; }
+
+  let logs = [];
+  if (cloud.configured && navigator.onLine) {
+    const { data } = await cloud.sb
+      .from("audit_log")
+      .select("*, operatori:operatore_id(nome)")
+      .order("eseguito_at", { ascending: false })
+      .limit(60);
+    if (data) logs = data;
+  }
+
+  view.innerHTML = `
+    <div class="row between">
+      <small class="muted">Ultime azioni registrate sul sistema</small>
+      <button class="btn small ghost" id="refAudit">⟳ Aggiorna</button>
+    </div>
+    <div class="card list">
+      ${logs.length ? logs.map(l => {
+        const opNome = l.operatori?.nome || "Operatore";
+        const dett = l.dettagli ? Object.entries(l.dettagli).map(([k, v]) => `${k}: ${v}`).join(" · ") : "";
+        const isDel = /elimina|dismess/i.test(l.azione);
+        return `<div class="line ${isDel ? "low" : ""}">
+          <div class="info">
+            <b>${isDel ? "🗑 " : "🔹 "}${esc(l.azione.replace(/_/g, " "))}</b>
+            <small>${esc(opNome)} · ${fmtDT(l.eseguito_at)}</small>
+            ${dett ? `<small class="muted">${esc(dett)}</small>` : ""}
+          </div>
+        </div>`;
+      }).join("") : `<p class="muted">Nessuna attività registrata oppure connettiti a internet per sincronizzare l'audit log.</p>`}
+    </div>
+  `;
+
+  $("#refAudit") && ($("#refAudit").onclick = () => render());
 };
 
 routes.impostazioni = async () => {
