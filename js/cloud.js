@@ -1,12 +1,10 @@
-// Collegamento a Supabase: autenticazione, sincronizzazione, push.
+// Collegamento a Supabase: gestione operatori con PIN a 4 cifre, sincronizzazione, push.
 import { db, enqueue, deviceId, uuid, pendingCount } from "./db.js";
 
 const CFG = window.DIASTOCK_CONFIG || {};
 export const configured = !!(CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY && window.supabase);
 export const sb = configured
-  ? window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {
-      auth: { persistSession: true, autoRefreshToken: true, storageKey: "diastock-auth" },
-    })
+  ? window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY)
   : null;
 
 const listeners = new Set();
@@ -16,44 +14,91 @@ function emit(ev) { listeners.forEach((fn) => { try { fn(ev); } catch (e) { cons
 export const state = { syncing: false, lastError: null };
 
 // ------------------------------------------------------------------
-// Profilo / sessione
+// Profilo / sessione Operatore
 // ------------------------------------------------------------------
 export async function currentProfile() { return db.getMeta("profile"); }
 
-export async function signIn(email, password) {
-  const { data, error } = await sb.auth.signInWithPassword({ email, password });
-  if (error) throw error;
-  return loadProfile(data.user.id);
-}
+export async function signInPin(nome, pin) {
+  if (!configured) {
+    return createLocalProfile(nome, pin);
+  }
+  const cleanName = String(nome).trim();
+  const cleanPin = String(pin).trim();
 
-export async function signUp(email, password, nome) {
-  const { data, error } = await sb.auth.signUp({ email, password, options: { data: { nome } } });
-  if (error) throw error;
-  if (!data.session) return null; // conferma email richiesta
-  return loadProfile(data.user.id);
-}
+  const { data, error } = await sb
+    .from("operatori")
+    .select("*")
+    .ilike("nome", cleanName)
+    .eq("pin", cleanPin)
+    .eq("attivo", true)
+    .maybeSingle();
 
-async function loadProfile(uid) {
-  const { data, error } = await sb.from("profiles").select("*").eq("id", uid).single();
   if (error) throw error;
+  if (!data) throw new Error("Nome o PIN errati, oppure operatore non abilitato");
+
   await db.setMeta("profile", data);
   return data;
+}
+
+export async function signUpPin(nome, pin, ruolo = "operatore") {
+  if (!configured) {
+    return createLocalProfile(nome, pin);
+  }
+  const cleanPin = String(pin).trim();
+  if (!/^[0-9]{4}$/.test(cleanPin)) {
+    throw new Error("Il PIN deve essere esattamente di 4 cifre numeriche (es. 1234)");
+  }
+
+  const { data, error } = await sb.from("operatori").insert({
+    nome: nome.trim(),
+    pin: cleanPin,
+    ruolo: ruolo,
+    attivo: true
+  }).select("*").single();
+
+  if (error) {
+    if (error.code === "23505") throw new Error("Esiste già un operatore con questo nome");
+    throw error;
+  }
+
+  await db.setMeta("profile", data);
+  return data;
+}
+
+export async function getOperatoriList() {
+  if (configured && navigator.onLine) {
+    const { data } = await sb.from("operatori").select("id, nome, ruolo, attivo").order("nome");
+    if (data && data.length) {
+      await db.bulkPut("profili", data);
+      return data;
+    }
+  }
+  const cached = await db.all("profili");
+  return cached.sort((a, b) => a.nome.localeCompare(b.nome));
 }
 
 export async function refreshProfile() {
   const prof = await currentProfile();
   if (!configured || !prof || prof.locale || !navigator.onLine) return prof;
-  try { return await loadProfile(prof.id); } catch { return prof; }
+  try {
+    const { data } = await sb.from("operatori").select("*").eq("id", prof.id).maybeSingle();
+    if (data) {
+      await db.setMeta("profile", data);
+      return data;
+    }
+    return prof;
+  } catch {
+    return prof;
+  }
 }
 
-export async function createLocalProfile(nome) {
-  const prof = { id: uuid(), email: "", nome, ruolo: "master", attivo: true, locale: true };
+export async function createLocalProfile(nome, pin = "1234") {
+  const prof = { id: uuid(), nome, pin, ruolo: "master", attivo: true, locale: true };
   await db.setMeta("profile", prof);
   return prof;
 }
 
 export async function signOut() {
-  if (sb) { try { await sb.auth.signOut(); } catch { /* offline */ } }
   await db.setMeta("profile", null);
 }
 
@@ -85,18 +130,73 @@ async function pushOutbox() {
     if (it.tipo === "materiale") {
       const m = await db.get("materiali", it.ref);
       if (m) {
-        const { data: newId, error } = await sb.rpc("sync_materiale", { p: m });
+        const { error } = await sb.from("materiali").upsert({
+          id: m.id,
+          barcode: m.barcode,
+          nome: m.nome,
+          categoria: m.categoria || "",
+          pezzi_per_scatola: Math.max(1, m.pezzi_per_scatola || 1),
+          scorta_minima: Math.max(0, m.scorta_minima || 0),
+          attivo: m.attivo !== false,
+          created_by: m.created_by,
+          updated_by: m.updated_by,
+          updated_at: m.updated_at || new Date().toISOString()
+        }, { onConflict: "id" });
         if (error) throw error;
-        if (newId && newId !== m.id) await remapMateriale(m.id, newId);
       }
     } else if (it.tipo === "inventario") {
       const inv = await db.get("inventari", it.ref);
       if (inv && inv.stato === "chiuso" && !inv.synced) {
         const righe = await db.byIndex("righe", "inventario_id", inv.id);
-        const payload = { ...inv, device_id: inv.device_id, righe };
-        const { data: numero, error } = await sb.rpc("sync_inventario", { p: payload });
-        if (error) throw error;
-        inv.numero = numero; inv.synced = true;
+
+        // Se non ha ancora il numero progressivo definitivo, lo leggiamo dal conteggio attuale
+        let num = inv.numero;
+        if (!num) {
+          const { count } = await sb.from("inventari").select("*", { count: "exact", head: true });
+          num = (count || 0) + 1;
+        }
+
+        const { error: errInv } = await sb.from("inventari").upsert({
+          id: inv.id,
+          numero: num,
+          operatore_id: inv.operatore_id,
+          operatore_nome: inv.operatore_nome || "",
+          device_id: inv.device_id,
+          note: inv.note || "",
+          iniziato_at: inv.iniziato_at,
+          chiuso_at: inv.chiuso_at,
+          synced_at: new Date().toISOString()
+        }, { onConflict: "id" });
+        if (errInv) throw errInv;
+
+        if (righe.length) {
+          const righePayload = righe.map(r => ({
+            id: r.id,
+            inventario_id: inv.id,
+            materiale_id: r.materiale_id,
+            scatole: Math.max(0, r.scatole || 0),
+            pezzi_per_scatola: Math.max(1, r.pezzi_per_scatola || 1),
+            esito: r.esito,
+            motivo: r.motivo || "",
+            operatore_id: inv.operatore_id,
+            rilevato_at: r.rilevato_at || new Date().toISOString()
+          }));
+          const { error: errRighe } = await sb.from("righe_inventario").upsert(righePayload, { onConflict: "id" });
+          if (errRighe) throw errRighe;
+        }
+
+        // Notifica inventario
+        await sb.from("notifiche").insert({
+          tipo: "inventario",
+          destinatari: "tutti",
+          titolo: `Inventario n. ${num}`,
+          testo: `Compilato da ${inv.operatore_nome || "Operatore"} il ${new Date(inv.chiuso_at).toLocaleString("it-IT")}`,
+          inventario_id: inv.id,
+          operatore_id: inv.operatore_id
+        });
+
+        inv.numero = num;
+        inv.synced = true;
         await db.put("inventari", inv);
       }
     } else if (it.tipo === "audit") {
@@ -107,7 +207,6 @@ async function pushOutbox() {
   }
 }
 
-// Due operatori hanno censito offline lo stesso barcode: si usa l'id del server.
 async function remapMateriale(oldId, newId) {
   const righe = await db.byIndex("righe", "materiale_id", oldId);
   for (const r of righe) { r.materiale_id = newId; await db.put("righe", r); }
@@ -153,9 +252,9 @@ async function pull(prof) {
   await db.bulkPut("notifiche", notif);
   const nuove = before.size ? notif.filter((n) => !before.has(n.id)) : [];
 
-  // operatori (tutti li vedono per i nomi; il master li gestisce)
-  const { data: profs } = await sb.from("profiles").select("*").order("nome");
-  if (profs) { await db.clear("profili"); await db.bulkPut("profili", profs); }
+  // operatori per elenco rapido
+  const { data: ops } = await sb.from("operatori").select("id, nome, ruolo, attivo").order("nome");
+  if (ops) { await db.clear("profili"); await db.bulkPut("profili", ops); }
 
   return nuove;
 }
@@ -165,10 +264,8 @@ export async function sync({ silent = false } = {}) {
   if (!configured || !prof || prof.locale || state.syncing || !navigator.onLine) return;
   state.syncing = true; emit({ type: "sync-start" });
   try {
-    const { data: { session } } = await sb.auth.getSession();
-    if (!session) throw new Error("Sessione scaduta: effettua di nuovo l'accesso");
     const fresh = await refreshProfile();
-    if (!fresh?.attivo) throw new Error("Utente non ancora abilitato dal master");
+    if (!fresh?.attivo) throw new Error("Operatore non abilitato dal master");
     await pushOutbox();
     const nuove = await pull(fresh);
     await db.setMeta("last_sync", new Date().toISOString());
@@ -197,7 +294,6 @@ export function startAutoSync() {
 // Notifiche locali e push
 // ------------------------------------------------------------------
 async function showLocalNotifications(list) {
-  // Se le push sono attive, sarà il server a notificare.
   if (await db.getMeta("push_enabled")) return;
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   const reg = await navigator.serviceWorker?.getRegistration();

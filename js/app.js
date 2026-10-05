@@ -773,85 +773,129 @@ routes.impostazioni = async () => {
 routes.operatori = async () => {
   setTitle("Operatori");
   if (ME.ruolo !== "master") { go("menu"); return; }
-  const list = (await db.all("profili")).sort((a, b) => a.nome.localeCompare(b.nome));
-  view.innerHTML = `<p class="muted">I nuovi operatori si registrano dall'app e devono essere abilitati qui. Le modifiche richiedono la connessione.</p>
+  const list = await cloud.getOperatoriList();
+  view.innerHTML = `
+    <div class="row between">
+      <small class="muted">Gestione operatori e PIN</small>
+      <button class="btn small primary" id="addOp">＋ Nuovo operatore</button>
+    </div>
     <div class="card list">${list.map((p) => `<div class="line" data-id="${p.id}">
-      <div class="info"><b>${esc(p.nome)}</b><small>${esc(p.email)}</small></div>
+      <div class="info"><b>${esc(p.nome)}</b><small>Ruolo: ${p.ruolo}</small></div>
       <div class="col">
-        <select data-k="ruolo" ${p.id === ME.id ? "disabled" : ""}><option value="operatore" ${p.ruolo === "operatore" ? "selected" : ""}>Operatore</option>
-          <option value="master" ${p.ruolo === "master" ? "selected" : ""}>Master</option></select>
+        <select data-k="ruolo" ${p.id === ME.id ? "disabled" : ""}>
+          <option value="operatore" ${p.ruolo === "operatore" ? "selected" : ""}>Operatore</option>
+          <option value="master" ${p.ruolo === "master" ? "selected" : ""}>Master</option>
+        </select>
         <label class="check small"><input type="checkbox" data-k="attivo" ${p.attivo ? "checked" : ""} ${p.id === ME.id ? "disabled" : ""}> abilitato</label>
-      </div></div>`).join("") || `<p class="muted">Sincronizza per vedere gli operatori.</p>`}</div>`;
+      </div></div>`).join("") || `<p class="muted">Nessun operatore configurato.</p>`}</div>`;
+
+  $("#addOp").onclick = async () => {
+    const v = await formDialog({
+      title: "Nuovo operatore",
+      fields: [
+        { name: "nome", label: "Nome e cognome", required: true, placeholder: "es. Mario Rossi" },
+        { name: "pin", label: "PIN a 4 cifre", type: "number", required: true, placeholder: "1234" },
+        { name: "ruolo", label: "Ruolo", type: "select", value: "operatore", options: [{ value: "operatore", label: "Operatore" }, { value: "master", label: "Master" }] }
+      ],
+      submit: "Crea operatore"
+    });
+    if (!v) return;
+    try {
+      await cloud.signUpPin(v.nome, String(v.pin), v.ruolo);
+      toast("Operatore aggiunto con successo");
+      render();
+    } catch (e) {
+      toast(e.message || String(e), 4000);
+    }
+  };
+
   $$("[data-k]", view).forEach((el) => el.onchange = async () => {
-    if (!navigator.onLine) { toast("Serve la connessione"); render(); return; }
+    if (!navigator.onLine) { toast("Serve la connessione per modificare gli operatori"); render(); return; }
     const id = el.closest(".line").dataset.id;
     const patch = { [el.dataset.k]: el.type === "checkbox" ? el.checked : el.value };
-    const { error } = await cloud.sb.from("profiles").update(patch).eq("id", id);
+    const { error } = await cloud.sb.from("operatori").update(patch).eq("id", id);
     if (error) { toast(error.message); return; }
-    const p = await db.get("profili", id); Object.assign(p, patch); await db.put("profili", p);
-    await cloud.audit("operatore_modificato", "profilo", id, patch);
+    const p = await db.get("profili", id); if (p) { Object.assign(p, patch); await db.put("profili", p); }
+    await cloud.audit("operatore_modificato", "operatore", id, patch);
     toast("Salvato");
   });
 };
 
 // ------------------------------------------------------------------
-// ACCESSO
+// ACCESSO CON PIN A 4 CIFRE
 // ------------------------------------------------------------------
-function renderLogin(msg = "") {
+async function renderLogin(msg = "") {
   document.body.classList.add("auth");
-  setTitle("Diastock");
-  if (!cloud.configured) {
-    view.innerHTML = `<div class="card">
-      <h2>Benvenuto in Diastock</h2>
-      <p>Supabase non è ancora configurato (<code>config.js</code>). Puoi provare l'app in <b>modalità locale</b>: i dati restano solo su questo telefono.</p>
-      <form id="lf" class="form"><label>Il tuo nome</label><input name="nome" required placeholder="Nome e cognome">
-      <button class="btn primary block">Inizia in modalità locale</button></form></div>`;
-    $("#lf").onsubmit = async (e) => { e.preventDefault(); await cloud.createLocalProfile(e.target.nome.value.trim()); boot(); };
-    return;
-  }
+  setTitle("Diastock – Accesso");
+  const ops = await cloud.getOperatoriList();
+
   view.innerHTML = `<div class="card">
     <h2>Accesso operatore</h2>
     ${msg ? `<p class="error">${esc(msg)}</p>` : ""}
-    ${!navigator.onLine ? `<p class="error">Il primo accesso richiede la connessione internet. Dopo, l'app funziona anche offline.</p>` : ""}
     <form id="lf" class="form">
-      <label>Email</label><input name="email" type="email" required autocomplete="username">
-      <label>Password</label><input name="password" type="password" required autocomplete="current-password">
+      ${ops.length ? `
+        <label>Seleziona operatore</label>
+        <select name="nome" id="selOp">
+          ${ops.map(o => `<option value="${esc(o.nome)}">${esc(o.nome)} (${o.ruolo})</option>`).join("")}
+        </select>
+      ` : `
+        <label>Nome operatore</label>
+        <input name="nome" required placeholder="es. Coordinatore Master" value="Coordinatore Master">
+      `}
+      <label>PIN (4 cifre)</label>
+      <input name="pin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required placeholder="••••" autocomplete="current-password" autofocus>
       <button class="btn primary block">Accedi</button>
     </form>
-    <button class="btn ghost block" id="reg">Nuovo operatore? Registrati</button></div>`;
+    <button class="btn ghost block" id="reg">＋ Registra nuovo operatore</button>
+  </div>`;
+
   $("#lf").onsubmit = async (e) => {
     e.preventDefault();
-    try { await cloud.signIn(e.target.email.value.trim(), e.target.password.value); boot(); }
-    catch (err) { renderLogin(err.message === "Invalid login credentials" ? "Email o password errati" : err.message); }
+    const nome = e.target.nome.value.trim();
+    const pin = e.target.pin.value.trim();
+    try {
+      await cloud.signInPin(nome, pin);
+      boot();
+    } catch (err) {
+      renderLogin(err.message || "Nome o PIN non corretti");
+    }
   };
+
   $("#reg").onclick = renderRegister;
 }
 
 function renderRegister() {
-  view.innerHTML = `<div class="card"><h2>Registrazione operatore</h2>
-    <p class="muted">Dopo la registrazione il master dovrà abilitarti.</p>
+  view.innerHTML = `<div class="card">
+    <h2>Nuovo operatore</h2>
     <form id="rf" class="form">
-      <label>Nome e cognome</label><input name="nome" required>
-      <label>Email</label><input name="email" type="email" required>
-      <label>Password (min. 8 caratteri)</label><input name="password" type="password" minlength="8" required autocomplete="new-password">
-      <button class="btn primary block">Registrati</button></form>
-    <button class="btn ghost block" id="back">Ho già un account</button></div>`;
+      <label>Nome e cognome</label>
+      <input name="nome" required placeholder="es. Mario Rossi">
+      <label>PIN a 4 cifre (es. 1234)</label>
+      <input name="pin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required placeholder="••••" autocomplete="new-password">
+      <button class="btn primary block">Salva e accedi</button>
+    </form>
+    <button class="btn ghost block" id="back">Torna all'accesso</button>
+  </div>`;
+
   $("#back").onclick = () => renderLogin();
   $("#rf").onsubmit = async (e) => {
     e.preventDefault();
-    const f = e.target;
+    const nome = e.target.nome.value.trim();
+    const pin = e.target.pin.value.trim();
     try {
-      const prof = await cloud.signUp(f.email.value.trim(), f.password.value, f.nome.value.trim());
-      if (!prof) { renderLogin("Registrazione inviata: conferma l'email ricevuta e poi accedi."); return; }
+      await cloud.signUpPin(nome, pin, "operatore");
+      toast("Operatore registrato!");
       boot();
-    } catch (err) { toast(err.message, 4000); }
+    } catch (err) {
+      toast(err.message, 4000);
+    }
   };
 }
 
 function renderWaiting() {
   document.body.classList.add("auth");
   view.innerHTML = `<div class="card"><h2>In attesa di abilitazione</h2>
-    <p>Ciao <b>${esc(ME.nome)}</b>, il tuo account è stato creato. Il coordinatore (master) deve abilitarlo prima che tu possa usare l'app.</p>
+    <p>Ciao <b>${esc(ME.nome)}</b>, il tuo profilo deve essere abilitato dal Coordinatore Master prima di poter usare l'app.</p>
     <button class="btn primary block" id="retry">Verifica di nuovo</button>
     <button class="btn ghost block" id="out">Esci</button></div>`;
   $("#retry").onclick = boot;
@@ -865,11 +909,8 @@ let booted = false;
 async function boot() {
   ME = await cloud.currentProfile();
   if (ME && !ME.locale && cloud.configured && navigator.onLine) {
-    const { data: { session } } = await cloud.sb.auth.getSession();
-    if (!session) { await db.setMeta("profile", null); ME = null; }
-    else ME = await cloud.refreshProfile();
+    ME = await cloud.refreshProfile();
   }
-  if (ME?.locale && cloud.configured) { await db.setMeta("profile", null); ME = null; } // passaggio da locale a cloud
   if (!ME) { renderLogin(); return; }
   if (!ME.attivo) { renderWaiting(); return; }
   document.body.classList.remove("auth");
@@ -884,7 +925,6 @@ async function boot() {
       if (ev.type === "sync-done") {
         ME = (await cloud.currentProfile()) || ME;
         if (ev.nuove?.length) toast(`${ev.nuove.length} nuove notifiche`);
-        // aggiorna la vista se non si sta lavorando a un inventario
         if (!["inventario", "materiale"].includes(currentRoute) && !dlg.open) render();
       }
       if (ev.type === "sync-error" && !ev.silent) toast(ev.error, 4000);
