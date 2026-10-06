@@ -232,16 +232,31 @@ async function pull(prof) {
   if ((await pendingCount()) === 0) await db.clear("materiali");
   await db.bulkPut("materiali", mats);
 
-  // ultimi inventari con righe
+  // ultimi inventari con righe: conserviamo fino a un massimo di 50 inventari per PDF/storico
   const { data: invs, error: e1 } = await sb.from("inventari").select("*")
-    .order("chiuso_at", { ascending: false }).limit(30);
+    .order("chiuso_at", { ascending: false }).limit(50);
   if (e1) throw e1;
   const ids = invs.map((i) => i.id);
   if (ids.length) {
     const righe = await fetchAll(() => sb.from("righe_inventario").select("*").in("inventario_id", ids).order("id"));
+    await db.clear("righe");
     await db.bulkPut("righe", righe);
   }
+  await db.clear("inventari");
   await db.bulkPut("inventari", invs.map((i) => ({ ...i, stato: "chiuso", synced: true })));
+
+  // pulizia audit log: limitiamo agli ultimi 20 inventari (elimina annotazioni più vecchie)
+  if (prof.ruolo === "master" && invs.length >= 20) {
+    const cutoffInv = invs[19];
+    const cutoffDate = cutoffInv?.chiuso_at || cutoffInv?.iniziato_at;
+    if (cutoffDate) {
+      try {
+        await sb.from("audit_log").delete().lt("eseguito_at", cutoffDate);
+      } catch (err) {
+        console.warn("Pulizia automatica audit log:", err);
+      }
+    }
+  }
 
   // notifiche
   const before = new Set((await db.all("notifiche")).map((n) => n.id));
@@ -257,6 +272,41 @@ async function pull(prof) {
   if (ops) { await db.clear("profili"); await db.bulkPut("profili", ops); }
 
   return nuove;
+}
+
+export async function deleteMaterialeCompleto(materialeId) {
+  // 1. Elimina prima da Supabase (righe_inventario, notifiche e materiali)
+  if (configured && navigator.onLine) {
+    try {
+      await sb.from("righe_inventario").delete().eq("materiale_id", materialeId);
+      await sb.from("notifiche").delete().eq("materiale_id", materialeId);
+      const { error } = await sb.from("materiali").delete().eq("id", materialeId);
+      if (error) console.error("Errore eliminazione Supabase:", error);
+    } catch (e) {
+      console.warn("Errore eliminazione cloud:", e);
+    }
+  }
+  // 2. Elimina da IndexedDB locale
+  const righe = await db.byIndex("righe", "materiale_id", materialeId);
+  for (const r of righe) await db.del("righe", r.id);
+  await db.del("materiali", materialeId);
+
+  // 3. Rimuovi dall'outbox locale eventuali modifiche in sospeso per questo materiale
+  const outbox = await db.all("outbox");
+  for (const item of outbox) {
+    if (item.ref === materialeId) await db.del("outbox", item.seq);
+  }
+}
+
+export async function cleanOldAuditLogs() {
+  if (!configured || !navigator.onLine) return false;
+  const { data: invs } = await sb.from("inventari").select("chiuso_at, iniziato_at")
+    .order("chiuso_at", { ascending: false }).limit(20);
+  if (!invs || invs.length < 20) return false;
+  const cutoff = invs[19].chiuso_at || invs[19].iniziato_at;
+  const { error } = await sb.from("audit_log").delete().lt("eseguito_at", cutoff);
+  if (error) throw error;
+  return true;
 }
 
 export async function sync({ silent = false } = {}) {

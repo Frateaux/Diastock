@@ -556,19 +556,58 @@ routes.materiali = async () => {
     <div class="row"><input type="search" id="q" placeholder="Cerca nome, categoria o barcode" class="grow">
       <button class="btn" id="scanSearch" title="Cerca con scanner">📷</button></div>
     <button class="btn primary block" id="addMat">＋ Nuovo materiale</button>
+    <div id="dismessiBar"></div>
     <div class="card list" id="matList"></div>`;
 
   const draw = () => {
     const ql = ($("#q")?.value || "").toLowerCase();
     const baseList = filtro === "attivi" ? attivi : filtro === "dismessi" ? dismessi : mats;
     const list = baseList.filter((m) => !ql || `${m.nome} ${m.categoria} ${m.barcode}`.toLowerCase().includes(ql));
-    $("#matList").innerHTML = list.length ? list.map((m) => `<a class="line link ${m.attivo === false ? "dim" : ""}" href="#materiale/${m.id}">
-      <div class="info">
+
+    const bar = $("#dismessiBar");
+    if (bar) {
+      if (filtro === "dismessi" && ME.ruolo === "master" && dismessi.length > 0) {
+        bar.innerHTML = `<div class="row between" style="margin: 6px 0;">
+          <small class="muted">Materiali archiviati o inseriti per prova</small>
+          <button class="btn small danger ghost" id="cleanAllDismessi">🧹 Svuota tutti (${dismessi.length})</button>
+        </div>`;
+        $("#cleanAllDismessi").onclick = async () => {
+          if (!(await confirmDialog(`Eliminare definitivamente tutti i ${dismessi.length} materiali dismessi dal database?`, "Elimina tutti", true))) return;
+          for (const dm of dismessi) {
+            await cloud.deleteMaterialeCompleto(dm.id);
+          }
+          await cloud.audit("materiali_test_svuotati", "materiali", null, { quantita: dismessi.length });
+          toast("Tutti i materiali di prova sono stati eliminati definitivamente");
+          render();
+        };
+      } else {
+        bar.innerHTML = "";
+      }
+    }
+
+    $("#matList").innerHTML = list.length ? list.map((m) => `<div class="line ${m.attivo === false ? "dim" : ""}">
+      <a class="info link" href="#materiale/${m.id}">
         <div><b>${esc(m.nome)}</b> ${m.attivo === false ? '<span class="pill red">Eliminato/dismesso</span>' : ""}</div>
         <small>${esc(m.categoria || "—")} · ${esc(m.barcode)}</small>
-      </div>
-      <div class="right"><small>${m.pezzi_per_scatola} pz/sc</small>${m.scorta_minima ? `<small>min ${m.scorta_minima} sc</small>` : ""}</div></a>`).join("")
+      </a>
+      <div class="row">
+        <div class="right"><small>${m.pezzi_per_scatola} pz/sc</small>${m.scorta_minima ? `<small>min ${m.scorta_minima} sc</small>` : ""}</div>
+        ${ME.ruolo === "master" && m.attivo === false ? `<button class="btn small danger ghost" data-del-id="${m.id}" title="Elimina per sempre dal database">🗑</button>` : ""}
+      </div></div>`).join("")
       : `<p class="muted">${filtro === "dismessi" ? "Nessun materiale eliminato o dismesso." : "Nessun materiale trovato."}</p>`;
+
+    $$("[data-del-id]", view).forEach((btn) => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.delId;
+        const mat = mats.find((x) => x.id === id);
+        if (!(await confirmDialog(`Eliminare DEFINITIVAMENTE "${mat?.nome || "questo materiale"}" dal database? Non potrà più essere recuperato.`, "Elimina definitivamente", true))) return;
+        await cloud.deleteMaterialeCompleto(id);
+        await cloud.audit("materiale_eliminato_definitivamente", "materiale", id, { nome: mat?.nome, barcode: mat?.barcode });
+        toast("Materiale eliminato definitivamente");
+        render();
+      };
+    });
   };
 
   draw();
@@ -611,7 +650,10 @@ routes.materiale = async (id) => {
       ${isMaster ? `<label class="check"><input type="checkbox" name="attivo" ${m.attivo !== false ? "checked" : ""}> Attivo (incluso negli inventari e visibile nell'elenco in uso)</label>` : ""}
       <button class="btn primary block">Salva modifiche</button>
       ${isMaster ? `
-        <button type="button" class="btn danger ghost block" id="delMat">🗑 Elimina o dismetti materiale…</button>
+        <div class="row" style="margin-top: 8px">
+          ${m.attivo !== false ? `<button type="button" class="btn ghost grow" id="dismettiMat">📦 Dismetti (archivia)</button>` : ""}
+          <button type="button" class="btn danger grow" id="hardDelMat">🗑 Elimina per sempre (test)</button>
+        </div>
       ` : ""}
     </form>
     <div class="card">
@@ -620,46 +662,36 @@ routes.materiale = async (id) => {
       <small class="muted">${giac?.rilevato_il ? `rilevata il ${fmtDT(giac.rilevato_il)}` : "mai rilevata"}</small>
     </div>`;
 
-  if (isMaster && $("#delMat")) {
-    $("#delMat").onclick = async () => {
-      const v = await formDialog({
-        title: "Dismetti o elimina materiale",
-        intro: `<p>Stai per rimuovere <b>${esc(m.nome)}</b> dall'uso attivo.</p>`,
-        fields: [
-          { name: "motivo", label: "Motivo (es. prodotto fuori produzione, errore di inserimento)", required: true },
-          { name: "tipo", label: "Azione", type: "select", value: "disattiva", options: [
-            { value: "disattiva", label: "Dismetti (non comparirà più negli inventari, conserva storico)" },
-            { value: "elimina", label: "Elimina definitivamente dall'archivio" }
-          ]}
-        ],
-        submit: "Conferma"
-      });
-      if (!v) return;
-
-      if (v.tipo === "disattiva") {
+  if (isMaster) {
+    if ($("#dismettiMat")) {
+      $("#dismettiMat").onclick = async () => {
+        const v = await formDialog({
+          title: "Dismetti materiale",
+          intro: `<p><b>${esc(m.nome)}</b> non comparirà più negli inventari né nell'elenco attivo, ma conserverà lo storico delle rilevazioni passate.</p>`,
+          fields: [{ name: "motivo", label: "Motivo della dismissione", required: true, placeholder: "es. Fuori produzione, sostituito..." }],
+          submit: "Dismetti"
+        });
+        if (!v) return;
         m.attivo = false;
         await salvaMateriale(m, "materiale_dismesso");
-        await cloud.audit("materiale_dismesso", "materiale", m.id, {
-          nome: m.nome,
-          barcode: m.barcode,
-          motivo: v.motivo
-        });
-        toast("Materiale dismesso: non apparirà più negli inventari");
-      } else {
-        await db.del("materiali", m.id);
-        if (cloud.configured) {
-          await cloud.sb.from("materiali").delete().eq("id", m.id);
-        }
-        await cloud.audit("materiale_eliminato_definitivamente", "materiale", m.id, {
-          nome: m.nome,
-          barcode: m.barcode,
-          motivo: v.motivo
-        });
+        await cloud.audit("materiale_dismesso", "materiale", m.id, { nome: m.nome, barcode: m.barcode, motivo: v.motivo });
+        toast("Materiale dismesso");
+        go("materiali");
+      };
+    }
+    if ($("#hardDelMat")) {
+      $("#hardDelMat").onclick = async () => {
+        if (!(await confirmDialog(
+          `Eliminare DEFINITIVAMENTE "${m.nome}"? Verrà cancellato per sempre dal database e da tutti i dispositivi (ideale per eliminare materiali inseriti per prova).`,
+          "Elimina per sempre",
+          true
+        ))) return;
+        await cloud.deleteMaterialeCompleto(m.id);
+        await cloud.audit("materiale_eliminato_definitivamente", "materiale", m.id, { nome: m.nome, barcode: m.barcode });
         toast("Materiale eliminato definitivamente");
-      }
-      cloud.sync();
-      go("materiali");
-    };
+        go("materiali");
+      };
+    }
   }
 
   $("#mf").onsubmit = async (e) => {
@@ -675,6 +707,7 @@ routes.materiale = async (id) => {
     go("materiali");
   };
 };
+
 
 // ------------------------------------------------------------------
 // GIACENZE
@@ -738,7 +771,12 @@ routes.giacenze = async (filtroIniziale) => {
 routes.storico = async () => {
   setTitle("Storico inventari");
   const list = await inventariChiusi();
-  view.innerHTML = `<div class="card list">${list.length ? list.map((i) => `<a class="line link" href="#inv/${i.id}">
+  view.innerHTML = `
+    <div class="row between">
+      <small class="muted">Conservati gli ultimi 50 inventari per consultazione e ristampa PDF</small>
+      <small class="muted">${list.length}/50</small>
+    </div>
+    <div class="card list">${list.length ? list.map((i) => `<a class="line link" href="#inv/${i.id}">
     <div class="info"><b>${i.numero ? `Inventario n. ${i.numero}` : "Inventario (numero in attesa)"}</b>
     <small>${fmtDT(i.chiuso_at)} · ${esc(i.operatore_nome)}</small></div>
     <div class="right">${i.synced ? "✔" : "⏳"}</div></a>`).join("") : `<p class="muted">Nessun inventario.</p>`}</div>`;
@@ -844,20 +882,33 @@ routes.audit = async () => {
   setTitle("Registro attività");
   if (ME.ruolo !== "master") { go("menu"); return; }
 
+  const invs = await inventariChiusi();
+  const cutoffInv = invs.length >= 20 ? invs[19] : null;
+  const cutoffDate = cutoffInv?.chiuso_at || cutoffInv?.iniziato_at;
+
   let logs = [];
   if (cloud.configured && navigator.onLine) {
-    const { data } = await cloud.sb
+    let q = cloud.sb
       .from("audit_log")
       .select("*, operatori:operatore_id(nome)")
-      .order("eseguito_at", { ascending: false })
-      .limit(60);
+      .order("eseguito_at", { ascending: false });
+
+    if (cutoffDate) {
+      q = q.gte("eseguito_at", cutoffDate);
+    } else {
+      q = q.limit(80);
+    }
+    const { data } = await q;
     if (data) logs = data;
   }
 
   view.innerHTML = `
     <div class="row between">
-      <small class="muted">Ultime azioni registrate sul sistema</small>
-      <button class="btn small ghost" id="refAudit">⟳ Aggiorna</button>
+      <small class="muted">${cutoffDate ? `Attività degli ultimi 20 inventari (dal ${fmtDT(cutoffDate)})` : "Ultime azioni registrate sul sistema"}</small>
+      <div class="row">
+        ${cutoffDate ? `<button class="btn small danger ghost" id="purgeAudit" title="Elimina dal database le annotazioni precedenti agli ultimi 20 inventari">🧹 Pulisci vecchie</button>` : ""}
+        <button class="btn small ghost" id="refAudit">⟳ Aggiorna</button>
+      </div>
     </div>
     <div class="card list">
       ${logs.length ? logs.map(l => {
@@ -871,11 +922,21 @@ routes.audit = async () => {
             ${dett ? `<small class="muted">${esc(dett)}</small>` : ""}
           </div>
         </div>`;
-      }).join("") : `<p class="muted">Nessuna attività registrata oppure connettiti a internet per sincronizzare l'audit log.</p>`}
+      }).join("") : `<p class="muted">Nessuna attività registrata negli ultimi 20 inventari.</p>`}
     </div>
   `;
 
   $("#refAudit") && ($("#refAudit").onclick = () => render());
+  $("#purgeAudit") && ($("#purgeAudit").onclick = async () => {
+    if (!(await confirmDialog("Eliminare definitivamente dal database tutte le annotazioni più vecchie del 20° inventario?", "Pulisci registro", true))) return;
+    try {
+      await cloud.cleanOldAuditLogs();
+      toast("Annotazioni più vecchie rimosse con successo");
+      render();
+    } catch (e) {
+      toast("Errore durante la pulizia: " + (e.message || e), 4000);
+    }
+  });
 };
 
 routes.impostazioni = async () => {

@@ -389,16 +389,22 @@ textarea {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  font-size: 0.95rem;
+  font-size: 16px; /* 16px impedisce l'auto-zoom forzato di iOS Safari */
   font-family: inherit;
   background: #ffffff;
   color: var(--text);
   outline: none;
+  -webkit-appearance: none;
 }
 
 input:focus, select:focus, textarea:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px var(--primary-light);
+}
+
+button, .btn, .chip, .line {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* TABBAR */

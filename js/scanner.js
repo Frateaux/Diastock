@@ -39,6 +39,7 @@ let actx;
 function beep() {
   try {
     actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === "suspended") actx.resume();
     const o = actx.createOscillator(), g = actx.createGain();
     o.frequency.value = 1100; g.gain.value = 0.08;
     o.connect(g); g.connect(actx.destination);

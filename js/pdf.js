@@ -103,15 +103,36 @@ export function giacenzePdf({ giacenze, operatoreStampa }) {
 }
 
 // --- azioni sul PDF ---
-export function openPdf({ doc }) {
-  const url = doc.output("bloburl");
-  const w = window.open(url, "_blank");
-  if (!w) location.href = url;
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+export async function openPdf({ doc, filename = "Diastock_documento.pdf" }) {
+  const blob = doc.output("blob");
+  const url = URL.createObjectURL(blob);
+  
+  if (isIOS()) {
+    // Su iOS Safari spesso i blob in new window vengono bloccati o non mostrati:
+    // proviamo ad aprire o condividere direttamente
+    const w = window.open(url, "_blank");
+    if (!w) {
+      await sharePdf({ doc, filename });
+    }
+  } else {
+    const w = window.open(url, "_blank");
+    if (!w) location.href = url;
+  }
 }
 
-export function printPdf({ doc }) {
-  doc.autoPrint();
-  openPdf({ doc });
+export async function printPdf({ doc, filename = "Diastock_stampa.pdf" }) {
+  if (isIOS()) {
+    // Su iOS Safari non esiste window.print() su PDF embeddato:
+    // il modo ufficiale Apple per stampare con AirPrint è il foglio di condivisione di sistema
+    await sharePdf({ doc, filename });
+  } else {
+    doc.autoPrint();
+    const url = doc.output("bloburl");
+    const w = window.open(url, "_blank");
+    if (!w) location.href = url;
+  }
 }
 
 export async function sharePdf({ doc, filename }) {

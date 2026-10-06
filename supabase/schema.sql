@@ -61,7 +61,7 @@ create table public.inventari (
 create table public.righe_inventario (
   id                uuid primary key,
   inventario_id     uuid not null references public.inventari(id) on delete cascade,
-  materiale_id      uuid not null references public.materiali(id),
+  materiale_id      uuid not null references public.materiali(id) on delete cascade,
   scatole           integer not null default 0 check (scatole >= 0),
   pezzi_per_scatola integer not null default 1,
   totale_pezzi      integer generated always as (scatole * pezzi_per_scatola) stored,
