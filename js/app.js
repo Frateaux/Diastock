@@ -220,7 +220,12 @@ routes.home = async () => {
   const ultimo = chiusi[0];
   view.innerHTML = `
     <div class="card hello">
-      <div><b>${esc(ME.nome)}</b> <span class="pill ${ME.ruolo}">${ME.ruolo === "master" ? "Master" : "Operatore"}</span></div>
+      <div class="row between">
+        <div>
+          <b>${esc(ME.nome)}</b> <span class="pill ${ME.ruolo}">${ME.ruolo === "master" ? "Master" : "Operatore"}</span>
+        </div>
+        <button class="btn small ghost" id="switchUser">🔄 Cambia operatore</button>
+      </div>
       <small class="muted">${ME.locale ? "Modalità locale (nessuna sincronizzazione)" :
         `Ultima sincronizzazione: ${last ? fmtDT(last) : "mai"}${pend ? ` · ${pend} operazioni in attesa` : ""}`}</small>
     </div>
@@ -238,6 +243,11 @@ routes.home = async () => {
     ${ME.ruolo === "master" && sotto.length ? `<div class="card"><h3>⚠ Sotto scorta</h3>
         ${sotto.slice(0, 8).map((g) => `<div class="li"><span>${esc(g.nome)}</span><b class="red">${g.scatole ?? 0}/${g.scorta_minima}</b></div>`).join("")}</div>` : ""}
     ${!ME.locale ? `<button class="btn block ghost" id="syncNow">⟳ Sincronizza ora</button>` : ""}`;
+  $("#switchUser") && ($("#switchUser").onclick = async () => {
+    await cloud.signOut();
+    location.hash = "";
+    boot();
+  });
   $("#goInv") && ($("#goInv").onclick = () => go("inventario"));
   $("#newInv") && ($("#newInv").onclick = nuovoInventario);
   $("#syncNow") && ($("#syncNow").onclick = () => { if (!navigator.onLine) toast("Nessuna connessione: i dati restano salvati sul telefono"); cloud.sync(); });
@@ -533,21 +543,42 @@ async function notificheLocali(inv, righe) {
 routes.materiali = async () => {
   setTitle("Archivio materiali");
   const mats = await materiali({ soloAttivi: false });
+  const attivi = mats.filter((m) => m.attivo !== false);
+  const dismessi = mats.filter((m) => m.attivo === false);
+  let filtro = "attivi"; // Di default i materiali eliminati/dismessi sono nascosti!
+
   view.innerHTML = `
+    <div class="row chips">
+      <button class="chip active" data-f="attivi">In uso (${attivi.length})</button>
+      ${dismessi.length ? `<button class="chip" data-f="dismessi">🗑 Eliminati / dismessi (${dismessi.length})</button>` : ""}
+      <button class="chip" data-f="tutti">Tutti (${mats.length})</button>
+    </div>
     <div class="row"><input type="search" id="q" placeholder="Cerca nome, categoria o barcode" class="grow">
       <button class="btn" id="scanSearch" title="Cerca con scanner">📷</button></div>
     <button class="btn primary block" id="addMat">＋ Nuovo materiale</button>
     <div class="card list" id="matList"></div>`;
-  const draw = (q = "") => {
-    const ql = q.toLowerCase();
-    const list = mats.filter((m) => !ql || `${m.nome} ${m.categoria} ${m.barcode}`.toLowerCase().includes(ql));
+
+  const draw = () => {
+    const ql = ($("#q")?.value || "").toLowerCase();
+    const baseList = filtro === "attivi" ? attivi : filtro === "dismessi" ? dismessi : mats;
+    const list = baseList.filter((m) => !ql || `${m.nome} ${m.categoria} ${m.barcode}`.toLowerCase().includes(ql));
     $("#matList").innerHTML = list.length ? list.map((m) => `<a class="line link ${m.attivo === false ? "dim" : ""}" href="#materiale/${m.id}">
-      <div class="info"><b>${esc(m.nome)}</b><small>${esc(m.categoria || "—")} · ${esc(m.barcode)}</small></div>
+      <div class="info">
+        <div><b>${esc(m.nome)}</b> ${m.attivo === false ? '<span class="pill red">Eliminato/dismesso</span>' : ""}</div>
+        <small>${esc(m.categoria || "—")} · ${esc(m.barcode)}</small>
+      </div>
       <div class="right"><small>${m.pezzi_per_scatola} pz/sc</small>${m.scorta_minima ? `<small>min ${m.scorta_minima} sc</small>` : ""}</div></a>`).join("")
-      : `<p class="muted">Nessun materiale. Verranno aggiunti automaticamente alla prima scansione.</p>`;
+      : `<p class="muted">${filtro === "dismessi" ? "Nessun materiale eliminato o dismesso." : "Nessun materiale trovato."}</p>`;
   };
+
   draw();
-  $("#q").oninput = (e) => draw(e.target.value);
+  $("#q").oninput = draw;
+  $$(".chip", view).forEach((c) => c.onclick = () => {
+    $$(".chip", view).forEach((x) => x.classList.remove("active"));
+    c.classList.add("active");
+    filtro = c.dataset.f;
+    draw();
+  });
   $("#addMat").onclick = async () => { const m = await nuovoMaterialeDialog(""); if (m) render(); };
   $("#scanSearch").onclick = async () => {
     const code = await scanOnce();
@@ -565,6 +596,11 @@ routes.materiale = async (id) => {
   const giac = (await calcolaGiacenze()).find((g) => g.id === id);
   const isMaster = ME.ruolo === "master";
   view.innerHTML = `
+    ${m.attivo === false ? `
+      <div class="card error">
+        <b>🗑 Materiale eliminato / dismesso</b>
+        <p class="muted">Questo materiale è attualmente escluso dagli elenchi in uso e non compare negli inventari.${isMaster ? "<br>Puoi riattivarlo spuntando la casella 'Attivo' sotto e salvando." : ""}</p>
+      </div>` : ""}
     <form class="card form" id="mf">
       <label>Codice a barre</label><input value="${esc(m.barcode)}" readonly>
       <label>Nome</label><input name="nome" value="${esc(m.nome)}" required>
@@ -572,7 +608,7 @@ routes.materiale = async (id) => {
       <label>Pezzi per scatola</label><input name="ppb" type="number" inputmode="numeric" min="1" value="${m.pezzi_per_scatola}" required>
       <label>Scorta minima (scatole) ${isMaster ? "" : "– impostata dal master"}</label>
       <input name="min" type="number" inputmode="numeric" min="0" value="${m.scorta_minima || 0}" ${isMaster ? "" : "readonly"}>
-      ${isMaster ? `<label class="check"><input type="checkbox" name="attivo" ${m.attivo !== false ? "checked" : ""}> Attivo (incluso nei controlli d'inventario)</label>` : ""}
+      ${isMaster ? `<label class="check"><input type="checkbox" name="attivo" ${m.attivo !== false ? "checked" : ""}> Attivo (incluso negli inventari e visibile nell'elenco in uso)</label>` : ""}
       <button class="btn primary block">Salva modifiche</button>
       ${isMaster ? `
         <button type="button" class="btn danger ghost block" id="delMat">🗑 Elimina o dismetti materiale…</button>
