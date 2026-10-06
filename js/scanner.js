@@ -1,37 +1,107 @@
-// Lettura barcode con fotocamera (funziona offline). Usa html5-qrcode (ZXing),
-// con il lettore nativo BarcodeDetector quando disponibile (Android/Chrome).
+// Lettura barcode con fotocamera (funziona offline).
+// Ottimizzato per precisione tra codici vicini e ambienti poco illuminati (torcia)
 let scanner = null;
-let lastCode = null, lastTime = 0;
+let currentTrack = null;
+let torchOn = false;
 
 export async function startScanner(elementId, onCode) {
   await stopScanner();
+  torchOn = false;
   const F = window.Html5QrcodeSupportedFormats;
   scanner = new window.Html5Qrcode(elementId, {
     verbose: false,
-    formatsToSupport: [F.CODE_128, F.CODE_39, F.CODE_93, F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E,
-      F.ITF, F.CODABAR, F.DATA_MATRIX, F.QR_CODE],
-    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+    formatsToSupport: [
+      F.CODE_128, F.CODE_39, F.CODE_93, F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E,
+      F.ITF, F.CODABAR, F.DATA_MATRIX, F.QR_CODE
+    ],
+    // Disattiviamo useBarCodeDetectorIfSupported: BarcodeDetector scansiona tutto il sensore
+    // ignorando il ritaglio; con false, ZXing scansiona solo l'area delimitata dal mirino!
+    experimentalFeatures: { useBarCodeDetectorIfSupported: false },
   });
+
+  // Mirino più stretto in altezza per centrare un singolo codice senza prendere quelli adiacenti
+  const config = {
+    fps: 10,
+    qrbox: (w, h) => ({
+      width: Math.floor(w * 0.88),
+      height: Math.max(90, Math.min(130, Math.floor(h * 0.35)))
+    }),
+    aspectRatio: 1.6,
+  };
+
   await scanner.start(
     { facingMode: "environment" },
-    { fps: 12, qrbox: (w, h) => ({ width: Math.floor(w * 0.85), height: Math.floor(Math.min(h, w) * 0.45) }) },
-    (text) => {
+    config,
+    async (text) => {
       const code = String(text).trim();
-      const now = Date.now();
-      // evita letture doppie della stessa scatola
-      if (code === lastCode && now - lastTime < 1800) return;
-      lastCode = code; lastTime = now;
+      if (!code) return;
       beep();
       if (navigator.vibrate) navigator.vibrate(60);
+
+      // FERMA SUBITO LO SCANNER: nessuna lettura precipitosa o successiva finché l'operatore non lo richiede!
+      await stopScanner();
       onCode(code);
     },
     () => {}
   );
+
+  // Recupera la traccia video per controllare la torcia (flash)
+  try {
+    const video = document.querySelector(`#${elementId} video`) || document.querySelector(".reader video");
+    if (video && video.srcObject) {
+      currentTrack = video.srcObject.getVideoTracks()[0] || null;
+    }
+  } catch (e) {
+    currentTrack = null;
+  }
+}
+
+export function isTorchSupported() {
+  if (currentTrack) {
+    try {
+      const caps = currentTrack.getCapabilities ? currentTrack.getCapabilities() : {};
+      if (caps.torch) return true;
+    } catch (e) {}
+  }
+  if (scanner) {
+    try {
+      const caps = scanner.getRunningTrackCameraCapabilities();
+      if (caps && caps.isTorchFeatureSupported && caps.isTorchFeatureSupported()) return true;
+    } catch (e) {}
+  }
+  return false;
+}
+
+export async function toggleTorch() {
+  torchOn = !torchOn;
+  let ok = false;
+  if (currentTrack) {
+    try {
+      await currentTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+      ok = true;
+    } catch (e) {}
+  }
+  if (!ok && scanner) {
+    try {
+      await scanner.applyVideoConstraints({ advanced: [{ torch: torchOn }] });
+      ok = true;
+    } catch (e) {}
+  }
+  return torchOn;
+}
+
+export function isTorchOn() {
+  return torchOn;
 }
 
 export async function stopScanner() {
+  torchOn = false;
+  currentTrack = null;
   if (!scanner) return;
-  try { if (scanner.isScanning) await scanner.stop(); scanner.clear(); } catch { /* ignore */ }
+  try {
+    if (scanner.isScanning) await scanner.stop();
+    scanner.clear();
+  } catch { /* ignore */ }
   scanner = null;
 }
 

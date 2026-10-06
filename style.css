@@ -529,12 +529,43 @@ dialog::backdrop {
 }
 
 /* SCANNER CONTAINER */
+.reader-wrap {
+  position: relative;
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  margin-bottom: 8px;
+}
 .reader {
   width: 100%;
-  max-height: 280px;
+  max-height: 260px;
   overflow: hidden;
-  border-radius: 8px;
   background: #000;
+}
+.scan-laser {
+  position: absolute;
+  top: 50%;
+  left: 6%;
+  right: 6%;
+  height: 2px;
+  background: #ef4444;
+  box-shadow: 0 0 8px #ef4444, 0 0 2px #ffffff;
+  pointer-events: none;
+  z-index: 4;
+  transform: translateY(-50%);
+  animation: laserPulse 2s ease-in-out infinite;
+}
+@keyframes laserPulse {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 0.5; }
+}
+
+.btn.torch-active {
+  background: #fef08a;
+  border-color: #eab308;
+  color: #854d0e;
+  font-weight: 700;
 }
 
 /* STICKY BOTTOM BAR IN INVENTARIO */

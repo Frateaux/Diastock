@@ -1,7 +1,7 @@
 // Diastock – interfaccia principale
 import { db, uuid, enqueue, deviceId, pendingCount } from "./db.js";
 import * as cloud from "./cloud.js";
-import { startScanner, stopScanner } from "./scanner.js";
+import { startScanner, stopScanner, toggleTorch, isTorchOn } from "./scanner.js";
 import * as pdf from "./pdf.js";
 
 // ------------------------------------------------------------------
@@ -279,6 +279,8 @@ routes.inventario = async () => {
 
 async function righeInv(inv) { return db.byIndex("righe", "inventario_id", inv.id); }
 
+let lastScannedItem = null;
+
 async function renderInventario(inv) {
   const [righe, mats] = await Promise.all([righeInv(inv), materiali()]);
   const matMap = new Map((await db.all("materiali")).map((m) => [m.id, m]));
@@ -302,19 +304,38 @@ async function renderInventario(inv) {
   view.innerHTML = `
     <div class="card">
       <div class="row between"><small class="muted">Iniziato ${fmtDT(inv.iniziato_at)} · ${esc(inv.operatore_nome)}</small>
-        <button class="btn small ghost" id="annulla">Annulla</button></div>
-      <div id="reader" class="reader ${invState.cameraOn ? "" : "hidden"}"></div>
+        <button class="btn small ghost" id="annulla">Annulla inventario</button></div>
+      
+      <div class="reader-wrap ${invState.cameraOn ? "" : "hidden"}" id="readerWrap">
+        <div id="reader" class="reader"></div>
+        <div class="scan-laser"></div>
+      </div>
+
       <div class="row">
-        <button class="btn primary grow" id="cam">${invState.cameraOn ? "■ Ferma fotocamera" : "📷 Scansiona"}</button>
+        <button class="btn primary grow" id="cam">${invState.cameraOn ? "■ Ferma fotocamera" : "📷 Scansiona scatola"}</button>
+        <button class="btn ${invState.cameraOn ? "" : "hidden"} ${isTorchOn() ? "torch-active" : ""}" id="torch">${isTorchOn() ? "🔦 Torcia: ON" : "🔦 Torcia"}</button>
         <button class="btn" id="manual">⌨ Codice</button>
       </div>
+      ${invState.cameraOn ? `<small class="muted center" style="display:block;margin-top:2px;">Allinea la linea rossa sul codice a barre. Si ferma da sola appena letto.</small>` : ""}
       <label class="check small"><input type="checkbox" id="askQty" ${scanMode === "chiedi" ? "checked" : ""}> Chiedi il numero di scatole a ogni scansione (altrimenti +1 per scansione)</label>
     </div>
+
+    ${lastScannedItem ? `
+      <div class="card ok scan-prompt-card">
+        <div class="row between">
+          <div>
+            <small class="muted">Ultima scatola rilevata:</small>
+            <div><b>${esc(lastScannedItem.nome)}</b> · <span class="pill">${lastScannedItem.scatole} scatole</span></div>
+            <small class="muted">${esc(lastScannedItem.barcode)}</small>
+          </div>
+          <button class="btn small primary" id="nextScan">📷 Prossima scatola</button>
+        </div>
+      </div>` : ""}
 
     ${invState.closing ? `
       <div class="card ${mancanti.length ? "alert" : "ok"}">
         <h3>${mancanti.length ? `⚠ ${mancanti.length} materiali in archivio non rilevati` : "✔ Tutti i materiali sono stati verificati"}</h3>
-        ${mancanti.length ? `<p class="muted">Per ciascuno: scansiona la scatola, inserisci la giacenza a mano oppure segna "non necessario" per questo inventario.</p>` : ""}
+        ${mancanti.length ? `<p class="muted">Puoi rilevarli ora oppure segnarli come "non necessario". Puoi comunque salvare l'inventario in qualunque momento col tasto sotto.</p>` : ""}
         ${mancanti.map((m) => `<div class="miss" data-mid="${m.id}">
             <div><b>${esc(m.nome)}</b><small class="muted"> ${esc(m.categoria || "")} · ${esc(m.barcode)}</small></div>
             <div class="row wrap">
@@ -322,11 +343,11 @@ async function renderInventario(inv) {
               <button class="btn small" data-act="man">✍ A mano</button>
               <button class="btn small ghost" data-act="nn">Non necessario</button>
             </div></div>`).join("")}
-        ${mancanti.length > 1 ? `<button class="btn small ghost block" id="allNN">Segna tutti i rimanenti "non necessario"</button>` : ""}
+        ${mancanti.length > 0 ? `<button class="btn small ghost block" id="allNN">Segna tutti i rimanenti "non necessario"</button>` : ""}
       </div>` : ""}
 
     <h3 class="sec">Rilevati (${rilevate.length})</h3>
-    <div class="card list">${rilevate.length ? rilevate.sort((a, b) => b.rilevato_at.localeCompare(a.rilevato_at)).map(rigaHtml).join("") : `<p class="muted">Nessun materiale rilevato. Premi "Scansiona" e inquadra il codice a barre delle scatole.</p>`}</div>
+    <div class="card list">${rilevate.length ? rilevate.sort((a, b) => b.rilevato_at.localeCompare(a.rilevato_at)).map(rigaHtml).join("") : `<p class="muted">Nessun materiale rilevato. Premi "Scansiona scatola" per iniziare.</p>`}</div>
 
     ${nn.length ? `<h3 class="sec">Non necessari in questo inventario (${nn.length})</h3>
       <div class="card list">${nn.map((r) => `<div class="line" data-id="${r.id}"><div class="info"><b>${esc(matMap.get(r.materiale_id)?.nome)}</b>
@@ -334,33 +355,64 @@ async function renderInventario(inv) {
 
     <div class="sticky">
       ${invState.closing
-        ? `<button class="btn primary block" id="conferma" ${mancanti.length ? "disabled" : ""}>💾 Conferma e salva inventario</button>
-           <button class="btn ghost block" id="indietro">↩ Torna al conteggio</button>`
-        : `<button class="btn primary block" id="chiudi">✔ Chiudi inventario</button>`}
+        ? `<button class="btn primary block" id="conferma">💾 Salva inventario adesso</button>
+           <button class="btn ghost block" id="indietro">↩ Torna alle rilevazioni</button>`
+        : `<button class="btn primary block" id="chiudi">💾 Salva e chiudi inventario</button>`}
     </div>`;
 
   // --- eventi ---
-  const refresh = async () => { const cam = invState.cameraOn; await renderInventarioKeepCamera(inv, cam); };
+  const refresh = async () => {
+    const fresh = await db.get("inventari", inv.id);
+    await renderInventario(fresh);
+  };
 
   $("#askQty").onchange = async (e) => { await db.setMeta("scan_mode", e.target.checked ? "chiedi" : "piu1"); };
+  $("#nextScan") && ($("#nextScan").onclick = () => $("#cam").click());
+  
+  $("#torch") && ($("#torch").onclick = async () => {
+    const on = await toggleTorch();
+    $("#torch").textContent = on ? "🔦 Torcia: ON" : "🔦 Torcia";
+    $("#torch").classList.toggle("torch-active", on);
+  });
+
   $("#cam").onclick = async () => {
-    if (invState.cameraOn) { await stopScanner(); invState.cameraOn = false; $("#reader").classList.add("hidden"); $("#cam").textContent = "📷 Scansiona"; return; }
-    invState.cameraOn = true; $("#reader").classList.remove("hidden"); $("#cam").textContent = "■ Ferma fotocamera";
-    try { await startScanner("reader", (code) => onScan(inv, code)); }
-    catch (e) { invState.cameraOn = false; $("#reader").classList.add("hidden"); $("#cam").textContent = "📷 Scansiona"; toast("Fotocamera non disponibile: " + (e.message || e)); }
+    if (invState.cameraOn) {
+      await stopScanner();
+      invState.cameraOn = false;
+      $("#readerWrap")?.classList.add("hidden");
+      $("#torch")?.classList.add("hidden");
+      $("#cam").textContent = "📷 Scansiona scatola";
+      return;
+    }
+    invState.cameraOn = true;
+    $("#readerWrap")?.classList.remove("hidden");
+    $("#torch")?.classList.remove("hidden");
+    $("#cam").textContent = "■ Ferma fotocamera";
+    try {
+      await startScanner("reader", (code) => onScan(inv, code));
+    } catch (e) {
+      invState.cameraOn = false;
+      $("#readerWrap")?.classList.add("hidden");
+      $("#torch")?.classList.add("hidden");
+      $("#cam").textContent = "📷 Scansiona scatola";
+      toast("Fotocamera non disponibile: " + (e.message || e));
+    }
   };
+
   $("#manual").onclick = async () => {
     scanPaused = true;
     const v = await formDialog({ title: "Inserisci codice", fields: [{ name: "code", label: "Codice a barre (o lettore esterno)", required: true }], submit: "Avanti" });
     scanPaused = false;
     if (v?.code) await onScan(inv, v.code, true);
   };
+
   $("#annulla").onclick = async () => {
-    if (!(await confirmDialog("Annullare l'inventario in corso? I conteggi inseriti verranno eliminati.", "Annulla inventario", true))) return;
+    if (!(await confirmDialog("Annullare l'inventario in corso? Tutti i conteggi appena inseriti verranno eliminati.", "Annulla inventario", true))) return;
     for (const r of await righeInv(inv)) await db.del("righe", r.id);
     await db.del("inventari", inv.id);
     await cloud.audit("inventario_annullato", "inventario", inv.id);
     invState.closing = false;
+    lastScannedItem = null;
     go("home");
   };
 
@@ -422,35 +474,28 @@ async function renderInventario(inv) {
   });
 
   $("#allNN") && ($("#allNN").onclick = async () => {
-    if (!(await confirmDialog(`Segnare ${mancanti.length} materiali come "non necessario" per questo inventario?`))) return;
-    for (const m of mancanti) await setRiga(inv, m, 0, "non_necessario", "segnato in blocco");
+    if (!(await confirmDialog(`Segnare tutti i ${mancanti.length} materiali rimanenti come "non necessario"?`))) return;
+    for (const m of mancanti) await setRiga(inv, m, 0, "non_necessario", "non rilevato");
     refresh();
   });
 
-  $("#chiudi") && ($("#chiudi").onclick = async () => {
-    invState.closing = true;
-    await refresh();
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  $("#chiudi") && ($("#chiudi").onclick = () => chiudiInventario(inv));
+  $("#indietro") && ($("#indietro").onclick = () => { invState.closing = false; refresh(); });
+  $("#conferma") && ($("#conferma").onclick = async () => {
+    // Segna i rimanenti come non necessari e salva direttamente senza blocchi
+    for (const m of mancanti) {
+      await setRiga(inv, m, 0, "non_necessario", "non rilevato");
+    }
+    await chiudiInventario(inv, true);
   });
-  $("#indietro") && ($("#indietro").onclick = async () => { invState.closing = false; refresh(); });
-  $("#conferma") && ($("#conferma").onclick = () => chiudiInventario(inv));
-}
-
-async function renderInventarioKeepCamera(inv, cameraWasOn) {
-  // ri-renderizza mantenendo la fotocamera accesa se lo era
-  await stopScanner();
-  invState.cameraOn = false;
-  const fresh = await db.get("inventari", inv.id);
-  await renderInventario(fresh);
-  if (cameraWasOn) $("#cam")?.click();
 }
 
 function qtyDialog(m, current) {
   return formDialog({
     title: m?.nome || "Quantità",
-    intro: `<p class="muted">${m?.pezzi_per_scatola || 1} pezzi per scatola</p>`,
+    intro: `<p class="muted">${m?.pezzi_per_scatola || 1} pezzi per scatola · Barcode: ${esc(m?.barcode || "")}</p>`,
     fields: [{ name: "scatole", label: "Numero di scatole intere", type: "number", min: 0, value: current, required: true }],
-    submit: "OK",
+    submit: "Conferma quantità",
   }).then((v) => (v ? Math.max(0, v.scatole | 0) : null));
 }
 
@@ -468,6 +513,9 @@ async function setRiga(inv, m, scatole, esito, motivo = "") {
 async function onScan(inv, code, manual = false) {
   if (scanPaused || currentRoute !== "inventario") return;
   scanPaused = true;
+  await stopScanner();
+  invState.cameraOn = false;
+
   try {
     let m = await materialeByBarcode(code);
     if (!m) {
@@ -488,32 +536,79 @@ async function onScan(inv, code, manual = false) {
       qty = r && r.esito !== "non_necessario" ? r.scatole + 1 : 1;
     }
     await setRiga(inv, m, qty, r && r.esito !== "non_necessario" ? r.esito : esito);
-    toast(`${m.nome}: ${qty} scatole`);
+    lastScannedItem = { nome: m.nome, barcode: m.barcode, scatole: qty };
+    toast(`✔ ${m.nome}: ${qty} scatole rilevate`);
   } finally {
     scanPaused = false;
-    await renderInventarioKeepCamera(inv, invState.cameraOn);
+    invState.cameraOn = false; // La fotocamera resta ferma finché l'operatore non la richiede espressamente
+    const fresh = await db.get("inventari", inv.id);
+    await renderInventario(fresh);
   }
 }
 
-async function chiudiInventario(inv) {
-  const v = await formDialog({
-    title: "Salva inventario",
-    intro: `<p>L'inventario verrà salvato sul telefono e inviato automaticamente appena sarà disponibile la connessione.</p>`,
-    fields: [{ name: "note", label: "Note (facoltative)" }], submit: "Salva inventario",
-  });
-  if (!v) return;
+async function chiudiInventario(inv, skipCheck = false) {
+  const [righe, mats] = await Promise.all([righeInv(inv), materiali()]);
+  const presenti = new Set(righe.map((r) => r.materiale_id));
+  const mancanti = mats.filter((m) => !presenti.has(m.id));
+
+  let note = "";
+  if (!skipCheck && mancanti.length > 0) {
+    const v = await formDialog({
+      title: "Salva inventario",
+      intro: `<p>Hai rilevato <b>${righe.filter(r => r.esito !== "non_necessario").length} materiali</b>.<br>
+      Ci sono ancora <b>${mancanti.length} materiali</b> in archivio non scansionati.</p>`,
+      fields: [
+        {
+          name: "scelta",
+          label: "Come vuoi procedere?",
+          type: "select",
+          value: "salva_subito",
+          options: [
+            { value: "salva_subito", label: `✔ Salva adesso (segna i ${mancanti.length} mancanti come non necessari)` },
+            { value: "rivedi", label: `🔍 Controlla prima i ${mancanti.length} materiali mancanti` }
+          ]
+        },
+        { name: "note", label: "Note inventario (facoltative)", placeholder: "es. Controllo periodico..." }
+      ],
+      submit: "Procedi"
+    });
+    if (!v) return;
+    if (v.scelta === "rivedi") {
+      invState.closing = true;
+      const fresh = await db.get("inventari", inv.id);
+      await renderInventario(fresh);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    for (const m of mancanti) {
+      await setRiga(inv, m, 0, "non_necessario", "non rilevato");
+    }
+    note = v.note || "";
+  } else {
+    const v = await formDialog({
+      title: "Salva inventario",
+      intro: `<p>L'inventario verrà archiviato e sincronizzato.</p>`,
+      fields: [{ name: "note", label: "Note inventario (facoltative)", placeholder: "Note..." }],
+      submit: "Salva adesso",
+    });
+    if (!v) return;
+    note = v.note || "";
+  }
+
   await stopScanner();
-  inv.note = v.note || "";
+  invState.cameraOn = false;
+  inv.note = note;
   inv.stato = "chiuso";
   inv.chiuso_at = nowISO();
   inv.synced = false;
   await db.put("inventari", inv);
   await enqueue("inventario", inv.id);
-  const righe = await righeInv(inv);
-  await cloud.audit("inventario_chiuso", "inventario", inv.id, { righe: righe.length });
+  const righeFinali = await righeInv(inv);
+  await cloud.audit("inventario_chiuso", "inventario", inv.id, { righe: righeFinali.length });
   invState.closing = false;
-  if (ME.locale) await notificheLocali(inv, righe);
-  toast(navigator.onLine ? "Inventario salvato. Invio in corso…" : "Inventario salvato offline: verrà inviato al ritorno della connessione", 4000);
+  lastScannedItem = null;
+  if (ME.locale) await notificheLocali(inv, righeFinali);
+  toast(navigator.onLine ? "Inventario salvato con successo!" : "Inventario salvato offline!", 4000);
   cloud.sync();
   go(`inv/${inv.id}`);
 }
@@ -776,10 +871,30 @@ routes.storico = async () => {
       <small class="muted">Conservati gli ultimi 50 inventari per consultazione e ristampa PDF</small>
       <small class="muted">${list.length}/50</small>
     </div>
-    <div class="card list">${list.length ? list.map((i) => `<a class="line link" href="#inv/${i.id}">
-    <div class="info"><b>${i.numero ? `Inventario n. ${i.numero}` : "Inventario (numero in attesa)"}</b>
-    <small>${fmtDT(i.chiuso_at)} · ${esc(i.operatore_nome)}</small></div>
-    <div class="right">${i.synced ? "✔" : "⏳"}</div></a>`).join("") : `<p class="muted">Nessun inventario.</p>`}</div>`;
+    <div class="card list">${list.length ? list.map((i) => `
+      <div class="line">
+        <a class="info link" href="#inv/${i.id}">
+          <b>${i.numero ? `Inventario n. ${i.numero}` : "Inventario (numero in attesa)"}</b>
+          <small>${fmtDT(i.chiuso_at)} · ${esc(i.operatore_nome)}</small>
+        </a>
+        <div class="row">
+          <span>${i.synced ? "✔" : "⏳"}</span>
+          ${ME.ruolo === "master" ? `<button class="btn small danger ghost" data-del-inv="${i.id}" title="Elimina inventario di prova">🗑</button>` : ""}
+        </div>
+      </div>`).join("") : `<p class="muted">Nessun inventario registrato.</p>`}</div>`;
+
+  $$("[data-del-inv]", view).forEach((btn) => {
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.delInv;
+      const target = list.find((x) => x.id === id);
+      if (!(await confirmDialog(`Eliminare DEFINITIVAMENTE l'inventario ${target?.numero ? `n. ${target.numero}` : ""} dal database e dal dispositivo? (Ideale per pulire inventari di test)`, "Elimina inventario", true))) return;
+      await cloud.deleteInventario(id);
+      await cloud.audit("inventario_eliminato", "inventario", id);
+      toast("Inventario eliminato definitivamente");
+      render();
+    };
+  });
 };
 
 async function righeInventarioConFetch(inv) {
@@ -815,6 +930,11 @@ async function inventarioDettaglio(id, banner = "") {
         <span class="pill">${inv.synced ? "✔ sincronizzato" : "⏳ in attesa di invio"}</span></div>
     </div>
     <div class="row pdfbar"><button class="btn primary" id="pOpen">📄 Apri PDF</button><button class="btn" id="pPrint">🖨 Stampa</button><button class="btn" id="pShare">↗ Condividi</button></div>
+    ${ME.ruolo === "master" ? `
+      <div style="margin: 10px 0;">
+        <button class="btn danger ghost block" id="delThisInv">🗑 Elimina definitivamente questo inventario (test)</button>
+      </div>
+    ` : ""}
     <div class="card list">${sorted.map(({ r, m }) => {
       const low = r.esito !== "non_necessario" && m.scorta_minima > 0 && r.scatole < m.scorta_minima;
       return `<div class="line ${low ? "low" : ""} ${r.esito === "non_necessario" ? "dim" : ""}">
@@ -825,6 +945,16 @@ async function inventarioDettaglio(id, banner = "") {
   $("#pOpen").onclick = () => { pdf.openPdf(make()); cloud.audit("pdf_inventario", "inventario", inv.id); };
   $("#pPrint").onclick = () => { pdf.printPdf(make()); cloud.audit("pdf_inventario_stampa", "inventario", inv.id); };
   $("#pShare").onclick = () => { pdf.sharePdf(make()); cloud.audit("pdf_inventario_condiviso", "inventario", inv.id); };
+  
+  if (ME.ruolo === "master" && $("#delThisInv")) {
+    $("#delThisInv").onclick = async () => {
+      if (!(await confirmDialog(`Eliminare DEFINITIVAMENTE l'Inventario ${inv.numero ? `n. ${inv.numero}` : ""} e tutte le sue registrazioni dal database?`, "Elimina inventario", true))) return;
+      await cloud.deleteInventario(inv.id);
+      await cloud.audit("inventario_eliminato", "inventario", inv.id);
+      toast("Inventario eliminato definitivamente");
+      go("storico");
+    };
+  }
 }
 routes.inv = (id) => inventarioDettaglio(id);
 

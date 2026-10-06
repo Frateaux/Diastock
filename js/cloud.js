@@ -298,6 +298,30 @@ export async function deleteMaterialeCompleto(materialeId) {
   }
 }
 
+export async function deleteInventario(invId) {
+  // 1. Elimina prima da Supabase (righe_inventario, notifiche e inventari)
+  if (configured && navigator.onLine) {
+    try {
+      await sb.from("righe_inventario").delete().eq("inventario_id", invId);
+      await sb.from("notifiche").delete().eq("inventario_id", invId);
+      const { error } = await sb.from("inventari").delete().eq("id", invId);
+      if (error) console.error("Errore cancellazione inventario da Supabase:", error);
+    } catch (e) {
+      console.warn("Errore eliminazione inventario cloud:", e);
+    }
+  }
+  // 2. Elimina da IndexedDB locale
+  const righe = await db.byIndex("righe", "inventario_id", invId);
+  for (const r of righe) await db.del("righe", r.id);
+  await db.del("inventari", invId);
+
+  // 3. Rimuovi dall'outbox locale eventuali modifiche in sospeso per questo inventario
+  const outbox = await db.all("outbox");
+  for (const item of outbox) {
+    if (item.ref === invId) await db.del("outbox", item.seq);
+  }
+}
+
 export async function cleanOldAuditLogs() {
   if (!configured || !navigator.onLine) return false;
   const { data: invs } = await sb.from("inventari").select("chiuso_at, iniziato_at")
