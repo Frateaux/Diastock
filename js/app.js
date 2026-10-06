@@ -83,7 +83,11 @@ function formDialog({ title, fields, submit = "Salva", intro = "" }) {
 // Scansione singola in finestra (per cercare o censire un materiale)
 function scanOnce() {
   return new Promise((resolve) => {
-    openDialog(`<div class="dlg"><h2>Inquadra il barcode</h2><div id="readerOnce" class="reader"></div>
+    openDialog(`<div class="dlg"><h2>Inquadra il barcode</h2>
+      <div class="reader-wrap" id="readerOnceWrap">
+        <div id="readerOnce" class="reader"></div>
+        <div class="scan-laser"></div>
+      </div>
       <div class="row end"><button class="btn ghost" id="soClose">Chiudi</button></div></div>`);
     let done = false;
     const finish = async (v) => { if (done) return; done = true; dlg.onclose = null; await stopScanner(); closeDialog(); resolve(v); };

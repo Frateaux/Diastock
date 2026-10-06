@@ -532,32 +532,40 @@ dialog::backdrop {
 .reader-wrap {
   position: relative;
   width: 100%;
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
   background: #000;
   margin-bottom: 8px;
 }
 .reader {
   width: 100%;
-  max-height: 260px;
-  overflow: hidden;
+  position: relative;
   background: #000;
+  /* Nessun max-height né overflow:hidden che tagli il video e causi disallineamento verticale con il mirino */
+}
+.reader video {
+  width: 100% !important;
+  height: auto !important;
+  display: block !important;
+}
+#qr-shaded-region {
+  border-color: rgba(15, 23, 42, 0.65) !important;
 }
 .scan-laser {
   position: absolute;
   top: 50%;
-  left: 6%;
-  right: 6%;
+  left: 8%;
+  right: 8%;
   height: 2px;
   background: #ef4444;
-  box-shadow: 0 0 8px #ef4444, 0 0 2px #ffffff;
+  box-shadow: 0 0 10px #ef4444, 0 0 2px #ffffff;
   pointer-events: none;
-  z-index: 4;
+  z-index: 10;
   transform: translateY(-50%);
-  animation: laserPulse 2s ease-in-out infinite;
+  animation: laserPulse 1.8s ease-in-out infinite;
 }
 @keyframes laserPulse {
-  0%, 100% { opacity: 0.85; }
+  0%, 100% { opacity: 0.95; }
   50% { opacity: 0.5; }
 }
 

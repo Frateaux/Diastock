@@ -19,14 +19,16 @@ export async function startScanner(elementId, onCode) {
     experimentalFeatures: { useBarCodeDetectorIfSupported: false },
   });
 
-  // Mirino più stretto in altezza per centrare un singolo codice senza prendere quelli adiacenti
+  // Mirino orizzontale a fessura sottile (altezza ~70-95px):
+  // 1. Isola rigorosamente il singolo barcode puntato, ignorando quelli vicini sopra o sotto
+  // 2. Non forza aspectRatio arbitrari che deformano o tagliano il sensore in portrait
+  // 3. Perfettamente centrato al 50% verticale del video in asse con la linea laser rossa
   const config = {
     fps: 10,
     qrbox: (w, h) => ({
-      width: Math.floor(w * 0.88),
-      height: Math.max(90, Math.min(130, Math.floor(h * 0.35)))
+      width: Math.floor(w * 0.86),
+      height: Math.max(70, Math.min(95, Math.floor(h * 0.22)))
     }),
-    aspectRatio: 1.6,
   };
 
   await scanner.start(

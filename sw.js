@@ -1,4 +1,4 @@
-const CACHE_NAME = "diastock-v8";
+const CACHE_NAME = "diastock-v9";
 const ASSETS = [
   "./",
   "./index.html",
