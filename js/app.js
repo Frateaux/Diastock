@@ -407,8 +407,11 @@ async function renderInventario(inv) {
 
     view.innerHTML = `
       <div class="card">
-        <div class="row between"><small class="muted">Iniziato ${fmtDT(inv.iniziato_at)} · ${esc(inv.operatore_nome)}</small>
-          <button class="btn small ghost" id="annulla">Annulla inventario</button></div>
+        <div class="row between">
+          <small class="muted">Iniziato ${fmtDT(inv.iniziato_at)} · ${esc(inv.operatore_nome)}</small>
+          <button class="btn small danger ghost" id="annulla" title="Elimina l'intero inventario">🗑 Elimina</button>
+        </div>
+        <button class="btn ghost block" id="sospendi" style="margin-bottom: 4px;">⏸ Sospendi (salva e torna alla Home)</button>
         
         <div class="reader-wrap ${invState.cameraOn ? "" : "hidden"}" id="readerWrap">
           <div id="reader" class="reader"></div>
@@ -545,8 +548,17 @@ async function renderInventario(inv) {
     if (v?.code) await onScan(inv, v.code, true);
   });
 
+  $("#sospendi") && ($("#sospendi").onclick = async () => {
+    await stopScanner();
+    invState.cameraOn = false;
+    invState.verifying = false;
+    scanPaused = false;
+    document.querySelector("main")?.classList.remove("with-thumb");
+    go("home");
+  });
+
   $("#annulla") && ($("#annulla").onclick = async () => {
-    if (!(await confirmDialog("Annullare l'inventario in corso? Tutti i conteggi appena inseriti verranno eliminati.", "Annulla inventario", true))) return;
+    if (!(await confirmDialog("Vuoi davvero ELIMINARE definitivamente questo inventario? ATTENZIONE: TUTTE le scansioni fatte fino ad ora verranno perse e non potranno essere recuperate. Se vuoi solo fare una pausa, usa il pulsante 'Sospendi'.", "Sì, Elimina tutto", true))) return;
     for (const r of await righeInv(inv)) await db.del("righe", r.id);
     await db.del("inventari", inv.id);
     await cloud.audit("inventario_annullato", "inventario", inv.id);
