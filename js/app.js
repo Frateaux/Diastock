@@ -512,6 +512,7 @@ async function renderInventario(inv) {
       return;
     }
     invState.cameraOn = true;
+    scanPaused = false; // Forza lo sblocco in caso di stati pendenti
     $("#readerWrap")?.classList.remove("hidden");
     $("#torch")?.classList.remove("hidden");
     $("#cam").textContent = "■ Ferma fotocamera";
@@ -528,8 +529,12 @@ async function renderInventario(inv) {
 
   $("#manual") && ($("#manual").onclick = async () => {
     scanPaused = true;
-    const v = await formDialog({ title: "Inserisci codice", fields: [{ name: "code", label: "Codice a barre (o lettore esterno)", required: true }], submit: "Avanti" });
-    scanPaused = false;
+    let v;
+    try {
+      v = await formDialog({ title: "Inserisci codice", fields: [{ name: "code", label: "Codice a barre (o lettore esterno)", required: true }], submit: "Avanti" });
+    } finally {
+      scanPaused = false;
+    }
     if (v?.code) await onScan(inv, v.code, true);
   });
 
@@ -641,10 +646,11 @@ async function setRiga(inv, m, scatole, esito, motivo = "") {
 async function onScan(inv, code, manual = false) {
   if (scanPaused || currentRoute !== "inventario") return;
   scanPaused = true;
-  await stopScanner();
-  invState.cameraOn = false;
 
   try {
+    await stopScanner();
+    invState.cameraOn = false;
+
     let m = await materialeByBarcode(code);
     if (!m) {
       m = await nuovoMaterialeDialog(code);

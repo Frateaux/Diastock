@@ -11,8 +11,7 @@ export async function startScanner(elementId, onCode) {
   scanner = new window.Html5Qrcode(elementId, {
     verbose: false,
     formatsToSupport: [
-      F.CODE_128, F.CODE_39, F.CODE_93, F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E,
-      F.ITF, F.CODABAR, F.DATA_MATRIX, F.QR_CODE
+      F.CODE_128, F.CODE_39, F.EAN_13, F.UPC_A, F.DATA_MATRIX, F.QR_CODE
     ],
     // Disattiviamo useBarCodeDetectorIfSupported: BarcodeDetector scansiona tutto il sensore
     // ignorando il ritaglio; con false, ZXing scansiona solo l'area delimitata dal mirino!
@@ -114,7 +113,12 @@ export async function stopScanner() {
   currentTrack = null;
   if (!scanner) return;
   try {
-    if (scanner.isScanning) await scanner.stop();
+    if (scanner.isScanning) {
+      await Promise.race([
+        scanner.stop(),
+        new Promise(r => setTimeout(r, 800))
+      ]);
+    }
     scanner.clear();
   } catch { /* ignore */ }
   scanner = null;
