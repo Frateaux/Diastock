@@ -21,14 +21,27 @@ export async function startScanner(elementId, onCode) {
 
   // Mirino orizzontale a fessura sottile (altezza ~70-95px):
   // 1. Isola rigorosamente il singolo barcode puntato, ignorando quelli vicini sopra o sotto
-  // 2. Non forza aspectRatio arbitrari che deformano o tagliano il sensore in portrait
-  // 3. Perfettamente centrato al 50% verticale del video in asse con la linea laser rossa
+  // 2. Posizionato marcatamente più in alto (a circa il 25% dell'altezza anziché in basso o al 50%)
+  //    in modo che l'operatore inquadri comodamente al centro-alto dello schermo
+  // 3. Linea laser rossa allineata al millimetro con il centro esatto della fessura di decodifica
   const config = {
     fps: 10,
-    qrbox: (w, h) => ({
-      width: Math.floor(w * 0.86),
-      height: Math.max(70, Math.min(95, Math.floor(h * 0.22)))
-    }),
+    qrbox: (w, h) => {
+      const boxWidth = Math.floor(w * 0.86);
+      const boxHeight = Math.max(70, Math.min(95, Math.floor(h * 0.20)));
+      const y = Math.floor(h * 0.25);
+
+      // Allinea al millimetro la linea laser rossa con il centro esatto dell'area attiva
+      try {
+        const wrap = document.getElementById(elementId)?.closest(".reader-wrap") || document.querySelector(".reader-wrap");
+        const laser = wrap ? wrap.querySelector(".scan-laser") : document.querySelector(".scan-laser");
+        if (laser) {
+          laser.style.top = `${y + Math.floor(boxHeight / 2)}px`;
+        }
+      } catch (e) {}
+
+      return { width: boxWidth, height: boxHeight, y };
+    },
   };
 
   await scanner.start(

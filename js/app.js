@@ -199,6 +199,7 @@ async function render() {
   await stopScanner();
   scanPaused = false;
   closeDialog();
+  document.querySelector("main")?.classList.remove("with-thumb");
   const [name, arg] = (location.hash.slice(1) || "home").split("/");
   currentRoute = name;
   $$(".tabbar button").forEach((b) => b.classList.toggle("active", b.dataset.tab === (TAB_OF[name] || name)));
@@ -271,13 +272,14 @@ async function nuovoInventario() {
 // ------------------------------------------------------------------
 // INVENTARIO IN CORSO
 // ------------------------------------------------------------------
-let invState = { closing: false, cameraOn: false };
+let invState = { verifying: false, cameraOn: false };
 
 routes.inventario = async () => {
   setTitle("Inventario");
   const inv = await inventarioInCorso();
   if (!inv) { go("home"); return; }
   invState.cameraOn = false;
+  invState.verifying = false;
   await renderInventario(inv);
 };
 
@@ -292,12 +294,19 @@ async function renderInventario(inv) {
   const mancanti = mats.filter((m) => !presenti.has(m.id));
   const rilevate = righe.filter((r) => r.esito !== "non_necessario");
   const nn = righe.filter((r) => r.esito === "non_necessario");
+  const totScatole = rilevate.reduce((acc, r) => acc + (r.scatole || 0), 0);
+  const totPezzi = rilevate.reduce((acc, r) => acc + ((r.scatole || 0) * (r.pezzi_per_scatola || 1)), 0);
   const scanMode = await db.getMeta("scan_mode", "piu1");
 
   const rigaHtml = (r) => {
     const m = matMap.get(r.materiale_id) || { nome: "?", barcode: "" };
+    const pzTot = (r.scatole || 0) * (r.pezzi_per_scatola || 1);
     return `<div class="line" data-id="${r.id}">
-      <div class="info"><b>${esc(m.nome)}</b><small>${esc(m.barcode)} · ${r.pezzi_per_scatola} pz/sc · ${r.esito === "manuale" ? "✍ manuale" : "📷 scansionato"}</small></div>
+      <div class="info">
+        <b>${esc(m.nome)}</b>
+        <small>${esc(m.barcode)} · ${r.pezzi_per_scatola} pz/sc · <b style="color:var(--primary-hover);">${pzTot} pz</b></small>
+        <small class="muted">${r.esito === "manuale" ? "✍ manuale" : "📷 scansionato"}</small>
+      </div>
       <div class="row">
         <div class="qty"><button class="q" data-act="minus">−</button><span data-act="edit">${r.scatole}</span><button class="q" data-act="plus">+</button></div>
         <button class="btn small danger ghost" data-act="del" title="Elimina scansione">🗑</button>
@@ -305,64 +314,152 @@ async function renderInventario(inv) {
     </div>`;
   };
 
-  view.innerHTML = `
-    <div class="card">
-      <div class="row between"><small class="muted">Iniziato ${fmtDT(inv.iniziato_at)} · ${esc(inv.operatore_nome)}</small>
-        <button class="btn small ghost" id="annulla">Annulla inventario</button></div>
-      
-      <div class="reader-wrap ${invState.cameraOn ? "" : "hidden"}" id="readerWrap">
-        <div id="reader" class="reader"></div>
-        <div class="scan-laser"></div>
-      </div>
+  if (invState.verifying) {
+    // -------------------------------------------------------------
+    // MODALITÀ VERIFICA E REVISIONE MANUALE (PRIMA DI CHIUDERE)
+    // -------------------------------------------------------------
+    document.querySelector("main")?.classList.remove("with-thumb");
 
-      <div class="row">
-        <button class="btn primary grow" id="cam">${invState.cameraOn ? "■ Ferma fotocamera" : "📷 Scansiona scatola"}</button>
-        <button class="btn ${invState.cameraOn ? "" : "hidden"} ${isTorchOn() ? "torch-active" : ""}" id="torch">${isTorchOn() ? "🔦 Torcia: ON" : "🔦 Torcia"}</button>
-        <button class="btn" id="manual">⌨ Codice</button>
-      </div>
-      ${invState.cameraOn ? `<small class="muted center" style="display:block;margin-top:2px;">Allinea la linea rossa sul codice a barre. Si ferma da sola appena letto.</small>` : ""}
-      <label class="check small"><input type="checkbox" id="askQty" ${scanMode === "chiedi" ? "checked" : ""}> Chiedi il numero di scatole a ogni scansione (altrimenti +1 per scansione)</label>
-    </div>
-
-    ${lastScannedItem ? `
-      <div class="card ok scan-prompt-card">
+    view.innerHTML = `
+      <div class="card hello">
         <div class="row between">
           <div>
-            <small class="muted">Ultima scatola rilevata:</small>
-            <div><b>${esc(lastScannedItem.nome)}</b> · <span class="pill">${lastScannedItem.scatole} scatole</span></div>
-            <small class="muted">${esc(lastScannedItem.barcode)}</small>
+            <h2 style="margin:0;font-size:1.25rem;">📋 Verifica e Revisione Inventario</h2>
+            <small class="muted">Iniziato ${fmtDT(inv.iniziato_at)} · ${esc(inv.operatore_nome)}</small>
           </div>
-          <button class="btn small primary" id="nextScan">📷 Prossima scatola</button>
+          <span class="pill master">Revisione obbligatoria</span>
         </div>
-      </div>` : ""}
+        <p style="margin:6px 0 0 0;font-size:0.9rem;">
+          Controlla tutte le quantità rilevate prima della chiusura definitiva. Se hai dubbi su qualsiasi prodotto, puoi modificare le scatole con i tasti <b>+</b> / <b>−</b> o toccare il numero per digitare il valore esatto.
+        </p>
+      </div>
 
-    ${invState.closing ? `
-      <div class="card ${mancanti.length ? "alert" : "ok"}">
-        <h3>${mancanti.length ? `⚠ ${mancanti.length} materiali in archivio non rilevati` : "✔ Tutti i materiali sono stati verificati"}</h3>
-        ${mancanti.length ? `<p class="muted">Puoi rilevarli ora oppure segnarli come "non necessario". Puoi comunque salvare l'inventario in qualunque momento col tasto sotto.</p>` : ""}
-        ${mancanti.map((m) => `<div class="miss" data-mid="${m.id}">
-            <div><b>${esc(m.nome)}</b><small class="muted"> ${esc(m.categoria || "")} · ${esc(m.barcode)}</small></div>
-            <div class="row wrap">
-              <button class="btn small" data-act="scan">📷 Scansiona</button>
-              <button class="btn small" data-act="man">✍ A mano</button>
-              <button class="btn small ghost" data-act="nn">Non necessario</button>
-            </div></div>`).join("")}
-        ${mancanti.length > 0 ? `<button class="btn small ghost block" id="allNN">Segna tutti i rimanenti "non necessario"</button>` : ""}
-      </div>` : ""}
+      <div class="verify-stats">
+        <div class="stat-box"><b>${rilevate.length}</b><span>Materiali rilevati</span></div>
+        <div class="stat-box"><b>${totScatole}</b><span>Scatole totali</span></div>
+        <div class="stat-box"><b>${totPezzi}</b><span>Pezzi totali</span></div>
+      </div>
 
-    <h3 class="sec">Rilevati (${rilevate.length})</h3>
-    <div class="card list">${rilevate.length ? rilevate.sort((a, b) => b.rilevato_at.localeCompare(a.rilevato_at)).map(rigaHtml).join("") : `<p class="muted">Nessun materiale rilevato. Premi "Scansiona scatola" per iniziare.</p>`}</div>
+      ${mancanti.length ? `
+        <div class="card alert">
+          <div class="row between">
+            <b>⚠ ${mancanti.length} materiali in archivio non rilevati</b>
+            <button class="btn small ghost" id="allNN">Segna tutti "non necessario"</button>
+          </div>
+          <p class="muted" style="margin:2px 0 6px 0;font-size:0.85rem;">
+            Questi materiali risultano in catalogo ma non sono stati contati. Puoi rilevarli ora oppure segnarli come non necessari.
+          </p>
+          ${mancanti.map((m) => `<div class="miss" data-mid="${m.id}">
+              <div><b>${esc(m.nome)}</b><small class="muted"> ${esc(m.categoria || "")} · ${esc(m.barcode)}</small></div>
+              <div class="row wrap">
+                <button class="btn small" data-act="scan">📷 Scansiona</button>
+                <button class="btn small" data-act="man">✍ A mano</button>
+                <button class="btn small ghost" data-act="nn">Non necessario</button>
+              </div></div>`).join("")}
+        </div>` : ""}
 
-    ${nn.length ? `<h3 class="sec">Non necessari in questo inventario (${nn.length})</h3>
-      <div class="card list">${nn.map((r) => `<div class="line" data-id="${r.id}"><div class="info"><b>${esc(matMap.get(r.materiale_id)?.nome)}</b>
-        <small>${esc(r.motivo || "")}</small></div><button class="btn small ghost" data-act="undo">Ripristina</button></div>`).join("")}</div>` : ""}
+      <h3 class="sec" style="margin-top:4px;">Elenco completo rilevazioni (${rilevate.length})</h3>
+      <div class="card list">
+        ${rilevate.length ? rilevate.sort((a, b) => (matMap.get(a.materiale_id)?.nome || "").localeCompare(matMap.get(b.materiale_id)?.nome || "")).map(rigaHtml).join("") : `<p class="muted" style="padding:12px;">Nessun materiale rilevato finora.</p>`}
+      </div>
 
-    <div class="sticky">
-      ${invState.closing
-        ? `<button class="btn primary block" id="conferma">💾 Salva inventario adesso</button>
-           <button class="btn ghost block" id="indietro">↩ Torna alle rilevazioni</button>`
-        : `<button class="btn primary block" id="chiudi">💾 Salva e chiudi inventario</button>`}
-    </div>`;
+      ${nn.length ? `
+        <h3 class="sec">Segnati come non necessari (${nn.length})</h3>
+        <div class="card list">
+          ${nn.map((r) => `<div class="line" data-id="${r.id}"><div class="info"><b>${esc(matMap.get(r.materiale_id)?.nome)}</b>
+            <small>${esc(r.motivo || "Non necessario")}</small></div><button class="btn small ghost" data-act="undo">Ripristina</button></div>`).join("")}
+        </div>` : ""}
+
+      <div class="card">
+        <label for="revNotes">Note inventario (facoltative):</label>
+        <textarea id="revNotes" rows="2" placeholder="Annotazioni dell'operatore, differenze riscontrate, note di reparto...">${esc(inv.note || "")}</textarea>
+      </div>
+
+      <div class="sticky">
+        <button class="bigbtn" style="background:#059669;box-shadow:0 4px 12px rgba(5,150,105,0.35);" id="confermaChiusura">
+          ✔ Conferma verifica e Chiudi definitivamente
+        </button>
+        <button class="btn ghost block" id="tornaScansione">
+          ↩ Torna alla scansione (continua inventario)
+        </button>
+      </div>
+    `;
+  } else {
+    // -------------------------------------------------------------
+    // MODALITÀ CONTEGGIO / SCANSIONE ATTIVA
+    // -------------------------------------------------------------
+    document.querySelector("main")?.classList.add("with-thumb");
+
+    view.innerHTML = `
+      <div class="card">
+        <div class="row between"><small class="muted">Iniziato ${fmtDT(inv.iniziato_at)} · ${esc(inv.operatore_nome)}</small>
+          <button class="btn small ghost" id="annulla">Annulla inventario</button></div>
+        
+        <div class="reader-wrap ${invState.cameraOn ? "" : "hidden"}" id="readerWrap">
+          <div id="reader" class="reader"></div>
+          <div class="scan-laser"></div>
+        </div>
+
+        <div class="row">
+          <button class="btn primary grow" id="cam">${invState.cameraOn ? "■ Ferma fotocamera" : "📷 Scansiona scatola"}</button>
+          <button class="btn ${invState.cameraOn ? "" : "hidden"} ${isTorchOn() ? "torch-active" : ""}" id="torch">${isTorchOn() ? "🔦 Torcia: ON" : "🔦 Torcia"}</button>
+          <button class="btn" id="manual">⌨ Codice</button>
+        </div>
+        ${invState.cameraOn ? `<small class="muted center" style="display:block;margin-top:2px;">Allinea la riga rossa sul codice a barre. Si ferma da sola appena letto.</small>` : ""}
+        <label class="check small"><input type="checkbox" id="askQty" ${scanMode === "chiedi" ? "checked" : ""}> Chiedi il numero di scatole a ogni scansione (altrimenti +1 per scansione)</label>
+      </div>
+
+      ${lastScannedItem ? `
+        <div class="card ok scan-prompt-card">
+          <div class="row between">
+            <div>
+              <small class="muted">Ultima scatola rilevata:</small>
+              <div><b>${esc(lastScannedItem.nome)}</b> · <span class="pill">${lastScannedItem.scatole} scatole</span></div>
+              <small class="muted">${esc(lastScannedItem.barcode)}</small>
+            </div>
+            <button class="btn small primary" id="nextScan">📷 Prossima scatola</button>
+          </div>
+        </div>` : ""}
+
+      <div class="row between" style="margin-top:6px;">
+        <h3 class="sec" style="margin:0;">Rilevati finora (${rilevate.length})</h3>
+        <button class="btn small ghost" id="topVerify">📋 Verifica (${rilevate.length})</button>
+      </div>
+      <div class="card list">
+        ${rilevate.length ? rilevate.sort((a, b) => b.rilevato_at.localeCompare(a.rilevato_at)).map(rigaHtml).join("") : `<p class="muted" style="padding:12px;">Nessun materiale rilevato. Usa il pulsante in basso con il pollice per scansionare la prima scatola.</p>`}
+      </div>
+
+      ${nn.length ? `
+        <h3 class="sec">Non necessari in questo inventario (${nn.length})</h3>
+        <div class="card list">
+          ${nn.map((r) => `<div class="line" data-id="${r.id}"><div class="info"><b>${esc(matMap.get(r.materiale_id)?.nome)}</b>
+            <small>${esc(r.motivo || "")}</small></div><button class="btn small ghost" data-act="undo">Ripristina</button></div>`).join("")}
+        </div>` : ""}
+
+      <div style="margin-top:12px;">
+        <button class="bigbtn" id="startVerify" style="background:var(--primary);box-shadow:0 4px 12px rgba(8,145,178,0.3);">
+          📋 Verifica manuale prima di chiudere (${rilevate.length})
+        </button>
+      </div>
+
+      <!-- BARRA POLLICE ERGONOMICA (fissata in basso a portata di pollice su smartphone) -->
+      <div class="thumb-bar" id="thumbBar">
+        ${lastScannedItem ? `<div class="thumb-last-pill">✔ Rilevato: <b>${esc(lastScannedItem.nome)}</b> (${lastScannedItem.scatole} sc)</div>` : ""}
+        <div class="thumb-row">
+          ${invState.cameraOn ? `
+            <button class="btn thumb-scan-btn danger grow" id="thumbCamStop">■ Ferma fotocamera</button>
+            <button class="btn thumb-btn ${isTorchOn() ? "torch-active" : ""}" id="thumbTorch" title="Torcia">🔦</button>
+          ` : `
+            <button class="btn primary thumb-scan-btn grow" id="thumbCam">
+              ${lastScannedItem ? "📷 Prossima scatola" : "📷 Scansiona scatola"}
+            </button>
+            <button class="btn thumb-btn" id="thumbManual" title="Inserisci codice a mano">⌨</button>
+            <button class="btn thumb-btn ghost" id="thumbVerify" title="Verifica e chiudi inventario">📋</button>
+          `}
+        </div>
+      </div>
+    `;
+  }
 
   // --- eventi ---
   const refresh = async () => {
@@ -370,22 +467,38 @@ async function renderInventario(inv) {
     await renderInventario(fresh);
   };
 
-  $("#askQty").onchange = async (e) => { await db.setMeta("scan_mode", e.target.checked ? "chiedi" : "piu1"); };
+  $("#askQty") && ($("#askQty").onchange = async (e) => { await db.setMeta("scan_mode", e.target.checked ? "chiedi" : "piu1"); });
   $("#nextScan") && ($("#nextScan").onclick = () => $("#cam").click());
-  
+  $("#topVerify") && ($("#topVerify").onclick = () => { invState.verifying = true; refresh(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+  $("#startVerify") && ($("#startVerify").onclick = () => { invState.verifying = true; refresh(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+  $("#thumbVerify") && ($("#thumbVerify").onclick = () => { invState.verifying = true; refresh(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+  $("#tornaScansione") && ($("#tornaScansione").onclick = () => { invState.verifying = false; refresh(); });
+
+  $("#thumbCam") && ($("#thumbCam").onclick = () => $("#cam").click());
+  $("#thumbCamStop") && ($("#thumbCamStop").onclick = () => $("#cam").click());
+  $("#thumbTorch") && ($("#thumbTorch").onclick = () => $("#torch").click());
+  $("#thumbManual") && ($("#thumbManual").onclick = () => $("#manual").click());
+
   $("#torch") && ($("#torch").onclick = async () => {
     const on = await toggleTorch();
     $("#torch").textContent = on ? "🔦 Torcia: ON" : "🔦 Torcia";
     $("#torch").classList.toggle("torch-active", on);
+    $("#thumbTorch") && $("#thumbTorch").classList.toggle("torch-active", on);
   });
 
-  $("#cam").onclick = async () => {
+  $("#cam") && ($("#cam").onclick = async () => {
     if (invState.cameraOn) {
       await stopScanner();
       invState.cameraOn = false;
       $("#readerWrap")?.classList.add("hidden");
       $("#torch")?.classList.add("hidden");
       $("#cam").textContent = "📷 Scansiona scatola";
+      const thumbBtn = $("#thumbCamStop");
+      if (thumbBtn) {
+        thumbBtn.textContent = lastScannedItem ? "📷 Prossima scatola" : "📷 Scansiona scatola";
+        thumbBtn.className = "btn primary thumb-scan-btn grow";
+        thumbBtn.id = "thumbCam";
+      }
       return;
     }
     invState.cameraOn = true;
@@ -401,24 +514,25 @@ async function renderInventario(inv) {
       $("#cam").textContent = "📷 Scansiona scatola";
       toast("Fotocamera non disponibile: " + (e.message || e));
     }
-  };
+  });
 
-  $("#manual").onclick = async () => {
+  $("#manual") && ($("#manual").onclick = async () => {
     scanPaused = true;
     const v = await formDialog({ title: "Inserisci codice", fields: [{ name: "code", label: "Codice a barre (o lettore esterno)", required: true }], submit: "Avanti" });
     scanPaused = false;
     if (v?.code) await onScan(inv, v.code, true);
-  };
+  });
 
-  $("#annulla").onclick = async () => {
+  $("#annulla") && ($("#annulla").onclick = async () => {
     if (!(await confirmDialog("Annullare l'inventario in corso? Tutti i conteggi appena inseriti verranno eliminati.", "Annulla inventario", true))) return;
     for (const r of await righeInv(inv)) await db.del("righe", r.id);
     await db.del("inventari", inv.id);
     await cloud.audit("inventario_annullato", "inventario", inv.id);
-    invState.closing = false;
+    invState.verifying = false;
     lastScannedItem = null;
+    document.querySelector("main")?.classList.remove("with-thumb");
     go("home");
-  };
+  });
 
   $$(".line [data-act]", view).forEach((el) => el.onclick = async () => {
     const id = el.closest(".line").dataset.id;
@@ -437,7 +551,7 @@ async function renderInventario(inv) {
       return refresh();
     } else if (act === "del") {
       const m = matMap.get(r.materiale_id);
-      if (!(await confirmDialog(`Rimuovere la scansione di "${m?.nome || "materiale"}" da questo inventario?`, "Rimuovi", true))) return;
+      if (!(await confirmDialog(`Rimuovere la rilevazione di "${m?.nome || "materiale"}"?`, "Rimuovi", true))) return;
       await db.del("righe", r.id);
       await cloud.audit("scansione_eliminata", "inventario", inv.id, {
         materiale_id: r.materiale_id,
@@ -446,7 +560,7 @@ async function renderInventario(inv) {
         scatole: r.scatole,
         esito: r.esito
       });
-      toast("Scansione rimossa");
+      toast("Rilevazione rimossa");
       return refresh();
     }
     r.rilevato_at = nowISO(); r.operatore_id = ME.id;
@@ -460,6 +574,8 @@ async function renderInventario(inv) {
     const m = matMap.get(mid);
     const act = el.dataset.act;
     if (act === "scan") {
+      invState.verifying = false;
+      await renderInventario(inv);
       if (!invState.cameraOn) $("#cam").click();
       window.scrollTo({ top: 0, behavior: "smooth" });
       toast(`Inquadra la scatola di: ${m.nome}`);
@@ -483,14 +599,12 @@ async function renderInventario(inv) {
     refresh();
   });
 
-  $("#chiudi") && ($("#chiudi").onclick = () => chiudiInventario(inv));
-  $("#indietro") && ($("#indietro").onclick = () => { invState.closing = false; refresh(); });
-  $("#conferma") && ($("#conferma").onclick = async () => {
-    // Segna i rimanenti come non necessari e salva direttamente senza blocchi
+  $("#confermaChiusura") && ($("#confermaChiusura").onclick = async () => {
+    const note = $("#revNotes") ? $("#revNotes").value.trim() : "";
     for (const m of mancanti) {
-      await setRiga(inv, m, 0, "non_necessario", "non rilevato");
+      await setRiga(inv, m, 0, "non_necessario", "non rilevato in inventario");
     }
-    await chiudiInventario(inv, true);
+    await finalizzaChiusura(inv, note);
   });
 }
 
@@ -550,57 +664,20 @@ async function onScan(inv, code, manual = false) {
   }
 }
 
-async function chiudiInventario(inv, skipCheck = false) {
-  const [righe, mats] = await Promise.all([righeInv(inv), materiali()]);
-  const presenti = new Set(righe.map((r) => r.materiale_id));
-  const mancanti = mats.filter((m) => !presenti.has(m.id));
+async function chiudiInventario(inv) {
+  invState.verifying = true;
+  const fresh = await db.get("inventari", inv.id);
+  await renderInventario(fresh);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
 
-  let note = "";
-  if (!skipCheck && mancanti.length > 0) {
-    const v = await formDialog({
-      title: "Salva inventario",
-      intro: `<p>Hai rilevato <b>${righe.filter(r => r.esito !== "non_necessario").length} materiali</b>.<br>
-      Ci sono ancora <b>${mancanti.length} materiali</b> in archivio non scansionati.</p>`,
-      fields: [
-        {
-          name: "scelta",
-          label: "Come vuoi procedere?",
-          type: "select",
-          value: "salva_subito",
-          options: [
-            { value: "salva_subito", label: `✔ Salva adesso (segna i ${mancanti.length} mancanti come non necessari)` },
-            { value: "rivedi", label: `🔍 Controlla prima i ${mancanti.length} materiali mancanti` }
-          ]
-        },
-        { name: "note", label: "Note inventario (facoltative)", placeholder: "es. Controllo periodico..." }
-      ],
-      submit: "Procedi"
-    });
-    if (!v) return;
-    if (v.scelta === "rivedi") {
-      invState.closing = true;
-      const fresh = await db.get("inventari", inv.id);
-      await renderInventario(fresh);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
-    }
-    for (const m of mancanti) {
-      await setRiga(inv, m, 0, "non_necessario", "non rilevato");
-    }
-    note = v.note || "";
-  } else {
-    const v = await formDialog({
-      title: "Salva inventario",
-      intro: `<p>L'inventario verrà archiviato e sincronizzato.</p>`,
-      fields: [{ name: "note", label: "Note inventario (facoltative)", placeholder: "Note..." }],
-      submit: "Salva adesso",
-    });
-    if (!v) return;
-    note = v.note || "";
-  }
-
+async function finalizzaChiusura(inv, note = "") {
   await stopScanner();
   invState.cameraOn = false;
+  invState.verifying = false;
+  lastScannedItem = null;
+  document.querySelector("main")?.classList.remove("with-thumb");
+
   inv.note = note;
   inv.stato = "chiuso";
   inv.chiuso_at = nowISO();
@@ -608,11 +685,13 @@ async function chiudiInventario(inv, skipCheck = false) {
   await db.put("inventari", inv);
   await enqueue("inventario", inv.id);
   const righeFinali = await righeInv(inv);
-  await cloud.audit("inventario_chiuso", "inventario", inv.id, { righe: righeFinali.length });
-  invState.closing = false;
-  lastScannedItem = null;
+  await cloud.audit("inventario_chiuso", "inventario", inv.id, {
+    righe: righeFinali.length,
+    rilevati: righeFinali.filter(r => r.esito !== "non_necessario").length,
+    note
+  });
   if (ME.locale) await notificheLocali(inv, righeFinali);
-  toast(navigator.onLine ? "Inventario salvato con successo!" : "Inventario salvato offline!", 4000);
+  toast(navigator.onLine ? "Inventario verificato e chiuso con successo!" : "Inventario salvato offline!", 4000);
   cloud.sync();
   go(`inv/${inv.id}`);
 }
