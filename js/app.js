@@ -298,7 +298,7 @@ async function renderInventario(inv) {
   const totPezzi = rilevate.reduce((acc, r) => acc + ((r.scatole || 0) * (r.pezzi_per_scatola || 1)), 0);
   const scanMode = await db.getMeta("scan_mode", "piu1");
 
-  const rigaHtml = (r) => {
+  const rigaHtml = (r, isVerify = false) => {
     const m = matMap.get(r.materiale_id) || { nome: "?", barcode: "" };
     const pzTot = (r.scatole || 0) * (r.pezzi_per_scatola || 1);
     return `<div class="line" data-id="${r.id}">
@@ -308,8 +308,8 @@ async function renderInventario(inv) {
         <small class="muted">${r.esito === "manuale" ? "✍ manuale" : "📷 scansionato"}</small>
       </div>
       <div class="row">
-        <div class="qty"><button class="q" data-act="minus">−</button><span data-act="edit">${r.scatole}</span><button class="q" data-act="plus">+</button></div>
-        <button class="btn small danger ghost" data-act="del" title="Elimina scansione">🗑</button>
+        <div class="qty ${isVerify ? 'qty-large' : ''}"><button class="q" data-act="minus">−</button><span data-act="edit">${r.scatole}</span><button class="q" data-act="plus">+</button></div>
+        <button class="btn small danger ghost" data-act="del" title="Elimina scansione" ${isVerify ? 'style="padding: 14px; font-size: 1.25rem;"' : ''}>🗑</button>
       </div>
     </div>`;
   };
@@ -341,33 +341,41 @@ async function renderInventario(inv) {
       </div>
 
       ${mancanti.length ? `
-        <div class="card alert">
+        <div class="card alert" style="border: 2px solid #ef4444; background-color: #fef2f2; margin-top: 12px;">
           <div class="row between">
-            <b>⚠ ${mancanti.length} materiali in archivio non rilevati</b>
-            <button class="btn small ghost" id="allNN">Segna tutti "non necessario"</button>
+            <b style="color: #b91c1c; font-size: 1.1rem;">🔴 NON RILEVATI (${mancanti.length})</b>
+            <button class="btn small danger ghost" id="allNN">Segna tutti "non necessario"</button>
           </div>
-          <p class="muted" style="margin:2px 0 6px 0;font-size:0.85rem;">
+          <p class="muted" style="margin:2px 0 6px 0;font-size:0.85rem; color: #991b1b;">
             Questi materiali risultano in catalogo ma non sono stati contati. Puoi rilevarli ora oppure segnarli come non necessari.
           </p>
-          ${mancanti.map((m) => `<div class="miss" data-mid="${m.id}">
-              <div><b>${esc(m.nome)}</b><small class="muted"> ${esc(m.categoria || "")} · ${esc(m.barcode)}</small></div>
-              <div class="row wrap">
-                <button class="btn small" data-act="scan">📷 Scansiona</button>
-                <button class="btn small" data-act="man">✍ A mano</button>
-                <button class="btn small ghost" data-act="nn">Non necessario</button>
+          ${mancanti.map((m) => `<div class="miss" data-mid="${m.id}" style="border-bottom: 1px solid #fecaca; padding: 12px 0;">
+              <div><b style="color: #991b1b; font-size: 1.05rem;">${esc(m.nome)}</b><br><small class="muted" style="color: #b91c1c;"> ${esc(m.categoria || "")} · ${esc(m.barcode)}</small></div>
+              <div class="row wrap" style="margin-top: 8px;">
+                <button class="btn small" data-act="scan" style="background:#fff;">📷 Scansiona</button>
+                <button class="btn small" data-act="man" style="background:#fff;">✍ A mano</button>
+                <button class="btn small ghost danger" data-act="nn">Non necessario</button>
               </div></div>`).join("")}
         </div>` : ""}
 
-      <h3 class="sec" style="margin-top:4px;">Elenco completo rilevazioni (${rilevate.length})</h3>
-      <div class="card list">
-        ${rilevate.length ? rilevate.sort((a, b) => (matMap.get(a.materiale_id)?.nome || "").localeCompare(matMap.get(b.materiale_id)?.nome || "")).map(rigaHtml).join("") : `<p class="muted" style="padding:12px;">Nessun materiale rilevato finora.</p>`}
+      <div class="card ok" style="border: 2px solid #10b981; background-color: #ffffff; margin-top: 12px; padding: 0;">
+        <div style="background-color: #d1fae5; padding: 12px 16px; border-bottom: 1px solid #a7f3d0; border-radius: 10px 10px 0 0;">
+            <b style="color: #065f46; font-size: 1.1rem;">🟢 MATERIALI RILEVATI (${rilevate.length})</b>
+        </div>
+        <div class="list" style="padding: 0;">
+          ${rilevate.length ? rilevate.sort((a, b) => (matMap.get(a.materiale_id)?.nome || "").localeCompare(matMap.get(b.materiale_id)?.nome || "")).map(r => rigaHtml(r, true)).join("") : `<p class="muted" style="padding:16px;">Nessun materiale rilevato finora.</p>`}
+        </div>
       </div>
 
       ${nn.length ? `
-        <h3 class="sec">Segnati come non necessari (${nn.length})</h3>
-        <div class="card list">
-          ${nn.map((r) => `<div class="line" data-id="${r.id}"><div class="info"><b>${esc(matMap.get(r.materiale_id)?.nome)}</b>
-            <small>${esc(r.motivo || "Non necessario")}</small></div><button class="btn small ghost" data-act="undo">Ripristina</button></div>`).join("")}
+        <div class="card" style="border: 2px solid #94a3b8; background-color: #ffffff; margin-top: 12px; padding: 0;">
+          <div style="background-color: #e2e8f0; padding: 12px 16px; border-bottom: 1px solid #cbd5e1; border-radius: 10px 10px 0 0;">
+              <b style="color: #334155; font-size: 1.1rem;">⚪ NON NECESSARI (${nn.length})</b>
+          </div>
+          <div class="list" style="padding: 0;">
+            ${nn.map((r) => `<div class="line" data-id="${r.id}"><div class="info"><b style="color:#475569; font-size: 1.05rem;">${esc(matMap.get(r.materiale_id)?.nome)}</b>
+              <small style="color:#64748b;">${esc(r.motivo || "Non necessario")}</small></div><button class="btn small ghost" data-act="undo" style="border: 1px solid #cbd5e1; padding: 8px 12px;">Ripristina</button></div>`).join("")}
+          </div>
         </div>` : ""}
 
       <div class="card">
@@ -464,7 +472,9 @@ async function renderInventario(inv) {
   // --- eventi ---
   const refresh = async () => {
     const fresh = await db.get("inventari", inv.id);
+    const scrollY = window.scrollY;
     await renderInventario(fresh);
+    window.scrollTo(0, scrollY);
   };
 
   $("#askQty") && ($("#askQty").onchange = async (e) => { await db.setMeta("scan_mode", e.target.checked ? "chiedi" : "piu1"); });
