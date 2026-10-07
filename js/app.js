@@ -223,6 +223,13 @@ routes.home = async () => {
   ]);
   const sotto = giac.filter((g) => g.sotto);
   const ultimo = chiusi[0];
+
+  let inCorsoCount = 0;
+  if (inCorso) {
+    const righe = await db.byIndex("righe", "inventario_id", inCorso.id);
+    inCorsoCount = righe.filter(r => r.esito !== "non_necessario").length;
+  }
+
   view.innerHTML = `
     <div class="card hello">
       <div class="row between">
@@ -235,7 +242,7 @@ routes.home = async () => {
         `Ultima sincronizzazione: ${last ? fmtDT(last) : "mai"}${pend ? ` · ${pend} operazioni in attesa` : ""}`}</small>
     </div>
     ${inCorso ? `
-      <button class="bigbtn warn" id="goInv">▶ Riprendi inventario<br><small>iniziato ${fmtDT(inCorso.iniziato_at)}</small></button>`
+      <button class="bigbtn warn" id="goInv">▶ Riprendi inventario<br><small>iniziato ${fmtDT(inCorso.iniziato_at)} · <b>${inCorsoCount} materiali scansionati</b></small></button>`
     : `<button class="bigbtn" id="newInv">📦 Nuovo inventario</button>`}
     <div class="grid2">
       <a class="tile" href="#giacenze"><b>${giac.length}</b><span>materiali in archivio</span></a>
