@@ -1,11 +1,11 @@
-// Diastock – interfaccia principale
+﻿// Diastock â€“ interfaccia principale
 import { db, uuid, enqueue, deviceId, pendingCount } from "./db.js";
 import * as cloud from "./cloud.js";
 import { startScanner, stopScanner, toggleTorch, isTorchOn } from "./scanner.js";
 import * as pdf from "./pdf.js";
 
 // ------------------------------------------------------------------
-// Utilità UI
+// UtilitÃ  UI
 // ------------------------------------------------------------------
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -16,7 +16,7 @@ const view = $("#view");
 const dlg = $("#dialog");
 
 let ME = null;               // profilo operatore corrente
-let scanPaused = false;      // ignora letture mentre è aperta una finestra
+let scanPaused = false;      // ignora letture mentre Ã¨ aperta una finestra
 
 function toast(msg, ms = 2600) {
   const t = $("#toast"); t.textContent = msg; t.classList.add("show");
@@ -150,7 +150,7 @@ async function nuovoMaterialeDialog(barcode = "") {
   const fields = [
     { name: "barcode", label: "Codice a barre", value: barcode, required: true, readonly: !!barcode },
     { name: "nome", label: "Nome materiale", required: true, placeholder: "es. Filtro dializzatore FX80" },
-    { name: "categoria", label: "Categoria", placeholder: "es. Filtri, Linee, Aghi, Concentrati…" },
+    { name: "categoria", label: "Categoria", placeholder: "es. Filtri, Linee, Aghi, Concentratiâ€¦" },
     { name: "pezzi_per_scatola", label: "Pezzi contenuti in ogni scatola", type: "number", min: 1, value: 1, required: true },
   ];
   if (ME.ruolo === "master") fields.push({ name: "scorta_minima", label: "Scorta minima (scatole)", type: "number", min: 0, value: 0 });
@@ -159,7 +159,7 @@ async function nuovoMaterialeDialog(barcode = "") {
     intro: barcode ? `<p class="muted">Barcode non presente in archivio: inserisci i dati la prima volta.</p>` : "",
   });
   if (!v) return null;
-  if (await materialeByBarcode(v.barcode)) { toast("Barcode già presente in archivio"); return materialeByBarcode(v.barcode); }
+  if (await materialeByBarcode(v.barcode)) { toast("Barcode giÃ  presente in archivio"); return materialeByBarcode(v.barcode); }
   const m = {
     id: uuid(), barcode: v.barcode, nome: v.nome, categoria: v.categoria || "",
     pezzi_per_scatola: Math.max(1, v.pezzi_per_scatola | 0), scorta_minima: Math.max(0, (v.scorta_minima || 0) | 0),
@@ -178,9 +178,9 @@ async function updateStatus() {
   const s = $("#status");
   const online = navigator.onLine;
   let txt, cls;
-  if (cloud.state.syncing) { txt = "⟳ sincronizzo…"; cls = "sync"; }
-  else if (ME?.locale) { txt = "modalità locale"; cls = "local"; }
-  else if (!online) { txt = `offline${pend ? ` · ${pend} in coda` : ""}`; cls = "off"; }
+  if (cloud.state.syncing) { txt = "âŸ³ sincronizzoâ€¦"; cls = "sync"; }
+  else if (ME?.locale) { txt = "modalitÃ  locale"; cls = "local"; }
+  else if (!online) { txt = `offline${pend ? ` Â· ${pend} in coda` : ""}`; cls = "off"; }
   else if (pend) { txt = `${pend} in coda`; cls = "sync"; }
   else { txt = "online"; cls = "on"; }
   s.textContent = txt; s.className = `badge ${cls}`;
@@ -236,25 +236,25 @@ routes.home = async () => {
         <div>
           <b>${esc(ME.nome)}</b> <span class="pill ${ME.ruolo}">${ME.ruolo === "master" ? "Master" : "Operatore"}</span>
         </div>
-        <button class="btn small ghost" id="switchUser">🔄 Cambia operatore</button>
+        <button class="btn small ghost" id="switchUser">ðŸ”„ Cambia operatore</button>
       </div>
-      <small class="muted">${ME.locale ? "Modalità locale (nessuna sincronizzazione)" :
-        `Ultima sincronizzazione: ${last ? fmtDT(last) : "mai"}${pend ? ` · ${pend} operazioni in attesa` : ""}`}</small>
+      <small class="muted">${ME.locale ? "ModalitÃ  locale (nessuna sincronizzazione)" :
+        `Ultima sincronizzazione: ${last ? fmtDT(last) : "mai"}${pend ? ` Â· ${pend} operazioni in attesa` : ""}`}</small>
     </div>
     ${inCorso ? `
-      <button class="bigbtn warn" id="goInv">▶ Riprendi inventario<br><small>iniziato ${fmtDT(inCorso.iniziato_at)} · <b>${inCorsoCount} materiali scansionati</b></small></button>`
-    : `<button class="bigbtn" id="newInv">📦 Nuovo inventario</button>`}
+      <button class="bigbtn warn" id="goInv">â–¶ Riprendi inventario<br><small>iniziato ${fmtDT(inCorso.iniziato_at)} Â· <b>${inCorsoCount} materiali scansionati</b></small></button>`
+    : `<button class="bigbtn" id="newInv">ðŸ“¦ Nuovo inventario</button>`}
     <div class="grid2">
       <a class="tile" href="#giacenze"><b>${giac.length}</b><span>materiali in archivio</span></a>
       <a class="tile ${sotto.length ? "alert" : ""}" href="#giacenze/sotto"><b>${sotto.length}</b><span>sotto scorta</span></a>
     </div>
     ${ultimo ? `<a class="card link" href="#inv/${ultimo.id}">
         <small class="muted">Ultimo inventario</small>
-        <div><b>${ultimo.numero ? `n. ${ultimo.numero}` : "in attesa di numero"}</b> · ${fmtDT(ultimo.chiuso_at)}</div>
-        <small>${esc(ultimo.operatore_nome)}${ultimo.synced ? "" : " · ⏳ da sincronizzare"}</small></a>` : ""}
-    ${ME.ruolo === "master" && sotto.length ? `<div class="card"><h3>⚠ Sotto scorta</h3>
+        <div><b>${ultimo.numero ? `n. ${ultimo.numero}` : "in attesa di numero"}</b> Â· ${fmtDT(ultimo.chiuso_at)}</div>
+        <small>${esc(ultimo.operatore_nome)}${ultimo.synced ? "" : " Â· â³ da sincronizzare"}</small></a>` : ""}
+    ${ME.ruolo === "master" && sotto.length ? `<div class="card"><h3>âš  Sotto scorta</h3>
         ${sotto.slice(0, 8).map((g) => `<div class="li"><span>${esc(g.nome)}</span><b class="red">${g.scatole ?? 0}/${g.scorta_minima}</b></div>`).join("")}</div>` : ""}
-    ${!ME.locale ? `<button class="btn block ghost" id="syncNow">⟳ Sincronizza ora</button>` : ""}`;
+    ${!ME.locale ? `<button class="btn block ghost" id="syncNow">âŸ³ Sincronizza ora</button>` : ""}`;
   $("#switchUser") && ($("#switchUser").onclick = async () => {
     await cloud.signOut();
     location.hash = "";
@@ -311,19 +311,19 @@ async function renderInventario(inv) {
     return `<div class="line" data-id="${r.id}">
       <div class="info">
         <b>${esc(m.nome)}</b>
-        <small>${esc(m.barcode)} · ${r.pezzi_per_scatola} pz/sc · <b style="color:var(--primary-hover);">${pzTot} pz</b></small>
-        <small class="muted">${r.esito === "manuale" ? "✍ manuale" : "📷 scansionato"}</small>
+        <small>${esc(m.barcode)} Â· ${r.pezzi_per_scatola} pz/sc Â· <b style="color:var(--primary-hover);">${pzTot} pz</b></small>
+        <small class="muted">${r.esito === "manuale" ? "âœ manuale" : "ðŸ“· scansionato"}</small>
       </div>
       <div class="row">
-        <div class="qty ${isVerify ? 'qty-large' : ''}"><button class="q" data-act="minus">−</button><span data-act="edit">${r.scatole}</span><button class="q" data-act="plus">+</button></div>
-        <button class="btn small danger ghost" data-act="del" title="Elimina scansione" ${isVerify ? 'style="padding: 14px; font-size: 1.25rem;"' : ''}>🗑</button>
+        <div class="qty ${isVerify ? 'qty-large' : ''}"><button class="q" data-act="minus">âˆ’</button><span data-act="edit">${r.scatole}</span><button class="q" data-act="plus">+</button></div>
+        <button class="btn small danger ghost" data-act="del" title="Elimina scansione" ${isVerify ? 'style="padding: 14px; font-size: 1.25rem;"' : ''}>ðŸ—‘</button>
       </div>
     </div>`;
   };
 
   if (invState.verifying) {
     // -------------------------------------------------------------
-    // MODALITÀ VERIFICA E REVISIONE MANUALE (PRIMA DI CHIUDERE)
+    // MODALITÃ€ VERIFICA E REVISIONE MANUALE (PRIMA DI CHIUDERE)
     // -------------------------------------------------------------
     document.querySelector("main")?.classList.remove("with-thumb");
 
@@ -331,13 +331,13 @@ async function renderInventario(inv) {
       <div class="card hello">
         <div class="row between">
           <div>
-            <h2 style="margin:0;font-size:1.25rem;">📋 Verifica e Revisione Inventario</h2>
-            <small class="muted">Iniziato ${fmtDT(inv.iniziato_at)} · ${esc(inv.operatore_nome)}</small>
+            <h2 style="margin:0;font-size:1.25rem;">ðŸ“‹ Verifica e Revisione Inventario</h2>
+            <small class="muted">Iniziato ${fmtDT(inv.iniziato_at)} Â· ${esc(inv.operatore_nome)}</small>
           </div>
           <span class="pill master">Revisione obbligatoria</span>
         </div>
         <p style="margin:6px 0 0 0;font-size:0.9rem;">
-          Controlla tutte le quantità rilevate prima della chiusura definitiva. Se hai dubbi su qualsiasi prodotto, puoi modificare le scatole con i tasti <b>+</b> / <b>−</b> o toccare il numero per digitare il valore esatto.
+          Controlla tutte le quantitÃ  rilevate prima della chiusura definitiva. Se hai dubbi su qualsiasi prodotto, puoi modificare le scatole con i tasti <b>+</b> / <b>âˆ’</b> o toccare il numero per digitare il valore esatto.
         </p>
       </div>
 
@@ -350,24 +350,24 @@ async function renderInventario(inv) {
       ${mancanti.length ? `
         <div class="card alert" style="border: 2px solid #ef4444; background-color: #fef2f2; margin-top: 12px;">
           <div class="row between">
-            <b style="color: #b91c1c; font-size: 1.1rem;">🔴 NON RILEVATI (${mancanti.length})</b>
+            <b style="color: #b91c1c; font-size: 1.1rem;">ðŸ”´ NON RILEVATI (${mancanti.length})</b>
             <button class="btn small danger ghost" id="allNN">Segna tutti "non necessario"</button>
           </div>
           <p class="muted" style="margin:2px 0 6px 0;font-size:0.85rem; color: #991b1b;">
             Questi materiali risultano in catalogo ma non sono stati contati. Puoi rilevarli ora oppure segnarli come non necessari.
           </p>
           ${mancanti.map((m) => `<div class="miss" data-mid="${m.id}" style="border-bottom: 1px solid #fecaca; padding: 12px 0;">
-              <div><b style="color: #991b1b; font-size: 1.05rem;">${esc(m.nome)}</b><br><small class="muted" style="color: #b91c1c;"> ${esc(m.categoria || "")} · ${esc(m.barcode)}</small></div>
+              <div><b style="color: #991b1b; font-size: 1.05rem;">${esc(m.nome)}</b><br><small class="muted" style="color: #b91c1c;"> ${esc(m.categoria || "")} Â· ${esc(m.barcode)}</small></div>
               <div class="row wrap" style="margin-top: 8px;">
-                <button class="btn small" data-act="scan" style="background:#fff;">📷 Scansiona</button>
-                <button class="btn small" data-act="man" style="background:#fff;">✍ A mano</button>
+                <button class="btn small" data-act="scan" style="background:#fff;">ðŸ“· Scansiona</button>
+                <button class="btn small" data-act="man" style="background:#fff;">âœ A mano</button>
                 <button class="btn small ghost danger" data-act="nn">Non necessario</button>
               </div></div>`).join("")}
         </div>` : ""}
 
       <div class="card ok" style="border: 2px solid #10b981; background-color: #ffffff; margin-top: 12px; padding: 0;">
         <div style="background-color: #d1fae5; padding: 12px 16px; border-bottom: 1px solid #a7f3d0; border-radius: 10px 10px 0 0;">
-            <b style="color: #065f46; font-size: 1.1rem;">🟢 MATERIALI RILEVATI (${rilevate.length})</b>
+            <b style="color: #065f46; font-size: 1.1rem;">ðŸŸ¢ MATERIALI RILEVATI (${rilevate.length})</b>
         </div>
         <div class="list" style="padding: 0;">
           ${rilevate.length ? rilevate.sort((a, b) => (matMap.get(a.materiale_id)?.nome || "").localeCompare(matMap.get(b.materiale_id)?.nome || "")).map(r => rigaHtml(r, true)).join("") : `<p class="muted" style="padding:16px;">Nessun materiale rilevato finora.</p>`}
@@ -377,7 +377,7 @@ async function renderInventario(inv) {
       ${nn.length ? `
         <div class="card" style="border: 2px solid #94a3b8; background-color: #ffffff; margin-top: 12px; padding: 0;">
           <div style="background-color: #e2e8f0; padding: 12px 16px; border-bottom: 1px solid #cbd5e1; border-radius: 10px 10px 0 0;">
-              <b style="color: #334155; font-size: 1.1rem;">⚪ NON NECESSARI (${nn.length})</b>
+              <b style="color: #334155; font-size: 1.1rem;">âšª NON NECESSARI (${nn.length})</b>
           </div>
           <div class="list" style="padding: 0;">
             ${nn.map((r) => `<div class="line" data-id="${r.id}"><div class="info"><b style="color:#475569; font-size: 1.05rem;">${esc(matMap.get(r.materiale_id)?.nome)}</b>
@@ -392,26 +392,26 @@ async function renderInventario(inv) {
 
       <div class="sticky">
         <button class="bigbtn" style="background:#059669;box-shadow:0 4px 12px rgba(5,150,105,0.35);" id="confermaChiusura">
-          ✔ Conferma verifica e Chiudi definitivamente
+          âœ” Conferma verifica e Chiudi definitivamente
         </button>
         <button class="btn ghost block" id="tornaScansione">
-          ↩ Torna alla scansione (continua inventario)
+          â†© Torna alla scansione (continua inventario)
         </button>
       </div>
     `;
   } else {
     // -------------------------------------------------------------
-    // MODALITÀ CONTEGGIO / SCANSIONE ATTIVA
+    // MODALITÃ€ CONTEGGIO / SCANSIONE ATTIVA
     // -------------------------------------------------------------
     document.querySelector("main")?.classList.add("with-thumb");
 
     view.innerHTML = `
       <div class="card">
         <div class="row between">
-          <small class="muted">Iniziato ${fmtDT(inv.iniziato_at)} · ${esc(inv.operatore_nome)}</small>
-          <button class="btn small danger ghost" id="annulla" title="Elimina l'intero inventario">🗑 Elimina</button>
+          <small class="muted">Iniziato ${fmtDT(inv.iniziato_at)} Â· ${esc(inv.operatore_nome)}</small>
+          <button class="btn small danger ghost" id="annulla" title="Elimina l'intero inventario">ðŸ—‘ Elimina</button>
         </div>
-        <button class="btn ghost block" id="sospendi" style="margin-bottom: 4px;">⏸ Sospendi (salva e torna alla Home)</button>
+        <button class="btn ghost block" id="sospendi" style="margin-bottom: 4px;">â¸ Sospendi (salva e torna alla Home)</button>
         
         <div class="reader-wrap ${invState.cameraOn ? "" : "hidden"}" id="readerWrap">
           <div id="reader" class="reader"></div>
@@ -419,9 +419,9 @@ async function renderInventario(inv) {
         </div>
 
         <div class="row">
-          <button class="btn primary grow" id="cam">${invState.cameraOn ? "■ Ferma fotocamera" : "📷 Scansiona scatola"}</button>
-          <button class="btn ${invState.cameraOn ? "" : "hidden"} ${isTorchOn() ? "torch-active" : ""}" id="torch">${isTorchOn() ? "🔦 Torcia: ON" : "🔦 Torcia"}</button>
-          <button class="btn" id="manual">⌨ Codice</button>
+          <button class="btn primary grow" id="cam">${invState.cameraOn ? "â–  Ferma fotocamera" : "ðŸ“· Scansiona scatola"}</button>
+          <button class="btn ${invState.cameraOn ? "" : "hidden"} ${isTorchOn() ? "torch-active" : ""}" id="torch">${isTorchOn() ? "ðŸ”¦ Torcia: ON" : "ðŸ”¦ Torcia"}</button>
+          <button class="btn" id="manual">âŒ¨ Codice</button>
         </div>
         ${invState.cameraOn ? `<small class="muted center" style="display:block;margin-top:2px;">Allinea la riga rossa sul codice a barre. Si ferma da sola appena letto.</small>` : ""}
         <label class="check small"><input type="checkbox" id="askQty" ${scanMode === "chiedi" ? "checked" : ""}> Chiedi il numero di scatole a ogni scansione (altrimenti +1 per scansione)</label>
@@ -432,16 +432,16 @@ async function renderInventario(inv) {
           <div class="row between">
             <div>
               <small class="muted">Ultima scatola rilevata:</small>
-              <div><b>${esc(lastScannedItem.nome)}</b> · <span class="pill">${lastScannedItem.scatole} scatole</span></div>
+              <div><b>${esc(lastScannedItem.nome)}</b> Â· <span class="pill">${lastScannedItem.scatole} scatole</span></div>
               <small class="muted">${esc(lastScannedItem.barcode)}</small>
             </div>
-            <button class="btn small primary" id="nextScan">📷 Prossima scatola</button>
+            <button class="btn small primary" id="nextScan">ðŸ“· Prossima scatola</button>
           </div>
         </div>` : ""}
 
       <div class="row between" style="margin-top:6px;">
         <h3 class="sec" style="margin:0;">Rilevati finora (${rilevate.length})</h3>
-        <button class="btn small ghost" id="topVerify">📋 Verifica (${rilevate.length})</button>
+        <button class="btn small ghost" id="topVerify">ðŸ“‹ Verifica (${rilevate.length})</button>
       </div>
       <div class="card list">
         ${rilevate.length ? rilevate.sort((a, b) => b.rilevato_at.localeCompare(a.rilevato_at)).map(rigaHtml).join("") : `<p class="muted" style="padding:12px;">Nessun materiale rilevato. Usa il pulsante in basso con il pollice per scansionare la prima scatola.</p>`}
@@ -456,23 +456,23 @@ async function renderInventario(inv) {
 
       <div style="margin-top:12px;">
         <button class="bigbtn" id="startVerify" style="background:var(--primary);box-shadow:0 4px 12px rgba(8,145,178,0.3);">
-          📋 Verifica manuale prima di chiudere (${rilevate.length})
+          ðŸ“‹ Verifica manuale prima di chiudere (${rilevate.length})
         </button>
       </div>
 
       <!-- BARRA POLLICE ERGONOMICA (fissata in basso a portata di pollice su smartphone) -->
       <div class="thumb-bar" id="thumbBar">
-        ${lastScannedItem ? `<div class="thumb-last-pill">✔ Rilevato: <b>${esc(lastScannedItem.nome)}</b> (${lastScannedItem.scatole} sc)</div>` : ""}
+        ${lastScannedItem ? `<div class="thumb-last-pill">âœ” Rilevato: <b>${esc(lastScannedItem.nome)}</b> (${lastScannedItem.scatole} sc)</div>` : ""}
         <div class="thumb-row">
           ${invState.cameraOn ? `
-            <button class="btn thumb-scan-btn danger grow" id="thumbCamStop">■ Ferma fotocamera</button>
-            <button class="btn thumb-btn ${isTorchOn() ? "torch-active" : ""}" id="thumbTorch" title="Torcia">🔦</button>
+            <button class="btn thumb-scan-btn danger grow" id="thumbCamStop">â–  Ferma fotocamera</button>
+            <button class="btn thumb-btn ${isTorchOn() ? "torch-active" : ""}" id="thumbTorch" title="Torcia">ðŸ”¦</button>
           ` : `
             <button class="btn primary thumb-scan-btn grow" id="thumbCam">
-              ${lastScannedItem ? "📷 Prossima scatola" : "📷 Scansiona scatola"}
+              ${lastScannedItem ? "ðŸ“· Prossima scatola" : "ðŸ“· Scansiona scatola"}
             </button>
-            <button class="btn thumb-btn" id="thumbManual" title="Inserisci codice a mano">⌨</button>
-            <button class="btn thumb-btn ghost" id="thumbVerify" title="Verifica e chiudi inventario">📋</button>
+            <button class="btn thumb-btn" id="thumbManual" title="Inserisci codice a mano">âŒ¨</button>
+            <button class="btn thumb-btn ghost" id="thumbVerify" title="Verifica e chiudi inventario">ðŸ“‹</button>
           `}
         </div>
       </div>
@@ -501,7 +501,7 @@ async function renderInventario(inv) {
 
   $("#torch") && ($("#torch").onclick = async () => {
     const on = await toggleTorch();
-    $("#torch").textContent = on ? "🔦 Torcia: ON" : "🔦 Torcia";
+    $("#torch").textContent = on ? "ðŸ”¦ Torcia: ON" : "ðŸ”¦ Torcia";
     $("#torch").classList.toggle("torch-active", on);
     $("#thumbTorch") && $("#thumbTorch").classList.toggle("torch-active", on);
   });
@@ -512,10 +512,10 @@ async function renderInventario(inv) {
       invState.cameraOn = false;
       $("#readerWrap")?.classList.add("hidden");
       $("#torch")?.classList.add("hidden");
-      $("#cam").textContent = "📷 Scansiona scatola";
+      $("#cam").textContent = "ðŸ“· Scansiona scatola";
       const thumbBtn = $("#thumbCamStop");
       if (thumbBtn) {
-        thumbBtn.textContent = lastScannedItem ? "📷 Prossima scatola" : "📷 Scansiona scatola";
+        thumbBtn.textContent = lastScannedItem ? "ðŸ“· Prossima scatola" : "ðŸ“· Scansiona scatola";
         thumbBtn.className = "btn primary thumb-scan-btn grow";
         thumbBtn.id = "thumbCam";
       }
@@ -525,14 +525,14 @@ async function renderInventario(inv) {
     scanPaused = false; // Forza lo sblocco in caso di stati pendenti
     $("#readerWrap")?.classList.remove("hidden");
     $("#torch")?.classList.remove("hidden");
-    $("#cam").textContent = "■ Ferma fotocamera";
+    $("#cam").textContent = "â–  Ferma fotocamera";
     try {
       await startScanner("reader", (code) => onScan(inv, code));
     } catch (e) {
       invState.cameraOn = false;
       $("#readerWrap")?.classList.add("hidden");
       $("#torch")?.classList.add("hidden");
-      $("#cam").textContent = "📷 Scansiona scatola";
+      $("#cam").textContent = "ðŸ“· Scansiona scatola";
       toast("Fotocamera non disponibile: " + (e.message || e));
     }
   });
@@ -558,7 +558,7 @@ async function renderInventario(inv) {
   });
 
   $("#annulla") && ($("#annulla").onclick = async () => {
-    if (!(await confirmDialog("Vuoi davvero ELIMINARE definitivamente questo inventario? ATTENZIONE: TUTTE le scansioni fatte fino ad ora verranno perse e non potranno essere recuperate. Se vuoi solo fare una pausa, usa il pulsante 'Sospendi'.", "Sì, Elimina tutto", true))) return;
+    if (!(await confirmDialog("Vuoi davvero ELIMINARE definitivamente questo inventario? ATTENZIONE: TUTTE le scansioni fatte fino ad ora verranno perse e non potranno essere recuperate. Se vuoi solo fare una pausa, usa il pulsante 'Sospendi'.", "SÃ¬, Elimina tutto", true))) return;
     for (const r of await righeInv(inv)) await db.del("righe", r.id);
     await db.del("inventari", inv.id);
     await cloud.audit("inventario_annullato", "inventario", inv.id);
@@ -619,7 +619,7 @@ async function renderInventario(inv) {
       await setRiga(inv, m, v, "manuale");
       refresh();
     } else if (act === "nn") {
-      const v = await formDialog({ title: "Non necessario", intro: `<p><b>${esc(m.nome)}</b> non verrà rilevato in questo inventario.</p>`,
+      const v = await formDialog({ title: "Non necessario", intro: `<p><b>${esc(m.nome)}</b> non verrÃ  rilevato in questo inventario.</p>`,
         fields: [{ name: "motivo", label: "Motivo (facoltativo)" }], submit: "Conferma" });
       if (!v) return;
       await setRiga(inv, m, 0, "non_necessario", v.motivo);
@@ -641,10 +641,10 @@ async function renderInventario(inv) {
 
 function qtyDialog(m, current) {
   return formDialog({
-    title: m?.nome || "Quantità",
-    intro: `<p class="muted">${m?.pezzi_per_scatola || 1} pezzi per scatola · Barcode: ${esc(m?.barcode || "")}</p>`,
+    title: m?.nome || "QuantitÃ ",
+    intro: `<p class="muted">${m?.pezzi_per_scatola || 1} pezzi per scatola Â· Barcode: ${esc(m?.barcode || "")}</p>`,
     fields: [{ name: "scatole", label: "Numero di scatole intere", type: "number", min: 0, value: current, required: true }],
-    submit: "Conferma quantità",
+    submit: "Conferma quantitÃ ",
   }).then((v) => (v ? Math.max(0, v.scatole | 0) : null));
 }
 
@@ -672,7 +672,7 @@ async function onScan(inv, code, manual = false) {
       m = await nuovoMaterialeDialog(code);
       if (!m) return;
     } else if (m.attivo === false) {
-      toast(`${m.nome} è disattivato in archivio`);
+      toast(`${m.nome} Ã¨ disattivato in archivio`);
     }
     const righe = await righeInv(inv);
     const r = righe.find((x) => x.materiale_id === m.id);
@@ -687,10 +687,10 @@ async function onScan(inv, code, manual = false) {
     }
     await setRiga(inv, m, qty, r && r.esito !== "non_necessario" ? r.esito : esito);
     lastScannedItem = { nome: m.nome, barcode: m.barcode, scatole: qty };
-    toast(`✔ ${m.nome}: ${qty} scatole rilevate`);
+    toast(`âœ” ${m.nome}: ${qty} scatole rilevate`);
   } finally {
     scanPaused = false;
-    invState.cameraOn = false; // La fotocamera resta ferma finché l'operatore non la richiede espressamente
+    invState.cameraOn = false; // La fotocamera resta ferma finchÃ© l'operatore non la richiede espressamente
     const fresh = await db.get("inventari", inv.id);
     await renderInventario(fresh);
   }
@@ -728,7 +728,7 @@ async function finalizzaChiusura(inv, note = "") {
   go(`inv/${inv.id}`);
 }
 
-// In modalità locale (senza Supabase) le notifiche vengono generate sul dispositivo
+// In modalitÃ  locale (senza Supabase) le notifiche vengono generate sul dispositivo
 async function notificheLocali(inv, righe) {
   const n = (await db.getMeta("local_inv_counter", 0)) + 1;
   await db.setMeta("local_inv_counter", n);
@@ -742,7 +742,7 @@ async function notificheLocali(inv, righe) {
     const m = mats.get(r.materiale_id);
     if (m && r.esito !== "non_necessario" && m.scorta_minima > 0 && r.scatole < m.scorta_minima) {
       await db.put("notifiche", { id: uuid(), tipo: "scorta", destinatari: "master", titolo: `Sotto scorta: ${m.nome}`,
-        testo: `Giacenza ${r.scatole} scatole – minimo ${m.scorta_minima} (inventario n. ${n})`, inventario_id: inv.id, materiale_id: m.id, created_at: nowISO() });
+        testo: `Giacenza ${r.scatole} scatole â€“ minimo ${m.scorta_minima} (inventario n. ${n})`, inventario_id: inv.id, materiale_id: m.id, created_at: nowISO() });
     }
   }
 }
@@ -760,14 +760,14 @@ routes.materiali = async () => {
   view.innerHTML = `
     <div class="row chips">
       <button class="chip active" data-f="attivi">In uso (${attivi.length})</button>
-      ${dismessi.length ? `<button class="chip" data-f="dismessi">🗑 Eliminati / dismessi (${dismessi.length})</button>` : ""}
+      ${dismessi.length ? `<button class="chip" data-f="dismessi">ðŸ—‘ Eliminati / dismessi (${dismessi.length})</button>` : ""}
       <button class="chip" data-f="tutti">Tutti (${mats.length})</button>
     </div>
     <div class="row"><input type="search" id="q" placeholder="Cerca nome, categoria o barcode" class="grow">
-      <button class="btn" id="scanSearch" title="Cerca con scanner">📷</button></div>
+      <button class="btn" id="scanSearch" title="Cerca con scanner">ðŸ“·</button></div>
     <div class="row">
-      <button class="btn primary grow" id="addMat">＋ Nuovo materiale</button>
-      <button class="btn ghost" id="printMat" title="Stampa elenco materiali in uso">🖨 Stampa elenco</button>
+      <button class="btn primary grow" id="addMat">ï¼‹ Nuovo materiale</button>
+      <button class="btn ghost" id="printMat" title="Stampa elenco materiali in uso">ðŸ–¨ Stampa elenco</button>
     </div>
     <div id="dismessiBar"></div>
     <div class="card list" id="matList"></div>`;
@@ -782,7 +782,7 @@ routes.materiali = async () => {
       if (filtro === "dismessi" && ME.ruolo === "master" && dismessi.length > 0) {
         bar.innerHTML = `<div class="row between" style="margin: 6px 0;">
           <small class="muted">Materiali archiviati o inseriti per prova</small>
-          <button class="btn small danger ghost" id="cleanAllDismessi">🧹 Svuota tutti (${dismessi.length})</button>
+          <button class="btn small danger ghost" id="cleanAllDismessi">ðŸ§¹ Svuota tutti (${dismessi.length})</button>
         </div>`;
         $("#cleanAllDismessi").onclick = async () => {
           if (!(await confirmDialog(`Eliminare definitivamente tutti i ${dismessi.length} materiali dismessi dal database?`, "Elimina tutti", true))) return;
@@ -801,11 +801,11 @@ routes.materiali = async () => {
     $("#matList").innerHTML = list.length ? list.map((m) => `<div class="line ${m.attivo === false ? "dim" : ""}">
       <a class="info link" href="#materiale/${m.id}">
         <div><b>${esc(m.nome)}</b> ${m.attivo === false ? '<span class="pill red">Eliminato/dismesso</span>' : ""}</div>
-        <small>${esc(m.categoria || "—")} · ${esc(m.barcode)}</small>
+        <small>${esc(m.categoria || "â€”")} Â· ${esc(m.barcode)}</small>
       </a>
       <div class="row">
         <div class="right"><small>${m.pezzi_per_scatola} pz/sc</small>${m.scorta_minima ? `<small>min ${m.scorta_minima} sc</small>` : ""}</div>
-        ${ME.ruolo === "master" && m.attivo === false ? `<button class="btn small danger ghost" data-del-id="${m.id}" title="Elimina per sempre dal database">🗑</button>` : ""}
+        ${ME.ruolo === "master" && m.attivo === false ? `<button class="btn small danger ghost" data-del-id="${m.id}" title="Elimina per sempre dal database">ðŸ—‘</button>` : ""}
       </div></div>`).join("")
       : `<p class="muted">${filtro === "dismessi" ? "Nessun materiale eliminato o dismesso." : "Nessun materiale trovato."}</p>`;
 
@@ -814,7 +814,7 @@ routes.materiali = async () => {
         e.stopPropagation();
         const id = btn.dataset.delId;
         const mat = mats.find((x) => x.id === id);
-        if (!(await confirmDialog(`Eliminare DEFINITIVAMENTE "${mat?.nome || "questo materiale"}" dal database? Non potrà più essere recuperato.`, "Elimina definitivamente", true))) return;
+        if (!(await confirmDialog(`Eliminare DEFINITIVAMENTE "${mat?.nome || "questo materiale"}" dal database? Non potrÃ  piÃ¹ essere recuperato.`, "Elimina definitivamente", true))) return;
         await cloud.deleteMaterialeCompleto(id);
         await cloud.audit("materiale_eliminato_definitivamente", "materiale", id, { nome: mat?.nome, barcode: mat?.barcode });
         toast("Materiale eliminato definitivamente");
@@ -859,28 +859,28 @@ routes.materiale = async (id) => {
   view.innerHTML = `
     ${m.attivo === false ? `
       <div class="card error">
-        <b>🗑 Materiale eliminato / dismesso</b>
-        <p class="muted">Questo materiale è attualmente escluso dagli elenchi in uso e non compare negli inventari.${isMaster ? "<br>Puoi riattivarlo spuntando la casella 'Attivo' sotto e salvando." : ""}</p>
+        <b>ðŸ—‘ Materiale eliminato / dismesso</b>
+        <p class="muted">Questo materiale Ã¨ attualmente escluso dagli elenchi in uso e non compare negli inventari.${isMaster ? "<br>Puoi riattivarlo spuntando la casella 'Attivo' sotto e salvando." : ""}</p>
       </div>` : ""}
     <form class="card form" id="mf">
       <label>Codice a barre</label><input value="${esc(m.barcode)}" readonly>
       <label>Nome</label><input name="nome" value="${esc(m.nome)}" required>
       <label>Categoria</label><input name="categoria" value="${esc(m.categoria || "")}">
       <label>Pezzi per scatola</label><input name="ppb" type="number" inputmode="numeric" min="1" value="${m.pezzi_per_scatola}" required>
-      <label>Scorta minima (scatole) ${isMaster ? "" : "– impostata dal master"}</label>
+      <label>Scorta minima (scatole) ${isMaster ? "" : "â€“ impostata dal master"}</label>
       <input name="min" type="number" inputmode="numeric" min="0" value="${m.scorta_minima || 0}" ${isMaster ? "" : "readonly"}>
       ${isMaster ? `<label class="check"><input type="checkbox" name="attivo" ${m.attivo !== false ? "checked" : ""}> Attivo (incluso negli inventari e visibile nell'elenco in uso)</label>` : ""}
       <button class="btn primary block">Salva modifiche</button>
       ${isMaster ? `
         <div class="row" style="margin-top: 8px">
-          ${m.attivo !== false ? `<button type="button" class="btn ghost grow" id="dismettiMat">📦 Dismetti (archivia)</button>` : ""}
-          <button type="button" class="btn danger grow" id="hardDelMat">🗑 Elimina per sempre (test)</button>
+          ${m.attivo !== false ? `<button type="button" class="btn ghost grow" id="dismettiMat">ðŸ“¦ Dismetti (archivia)</button>` : ""}
+          <button type="button" class="btn danger grow" id="hardDelMat">ðŸ—‘ Elimina per sempre (test)</button>
         </div>
       ` : ""}
     </form>
     <div class="card">
       <small class="muted">Giacenza attuale</small>
-      <div><b>${giac?.scatole ?? "–"}</b> scatole${giac?.totale != null ? ` (${giac.totale} pezzi)` : ""}</div>
+      <div><b>${giac?.scatole ?? "â€“"}</b> scatole${giac?.totale != null ? ` (${giac.totale} pezzi)` : ""}</div>
       <small class="muted">${giac?.rilevato_il ? `rilevata il ${fmtDT(giac.rilevato_il)}` : "mai rilevata"}</small>
     </div>`;
 
@@ -889,7 +889,7 @@ routes.materiale = async (id) => {
       $("#dismettiMat").onclick = async () => {
         const v = await formDialog({
           title: "Dismetti materiale",
-          intro: `<p><b>${esc(m.nome)}</b> non comparirà più negli inventari né nell'elenco attivo, ma conserverà lo storico delle rilevazioni passate.</p>`,
+          intro: `<p><b>${esc(m.nome)}</b> non comparirÃ  piÃ¹ negli inventari nÃ© nell'elenco attivo, ma conserverÃ  lo storico delle rilevazioni passate.</p>`,
           fields: [{ name: "motivo", label: "Motivo della dismissione", required: true, placeholder: "es. Fuori produzione, sostituito..." }],
           submit: "Dismetti"
         });
@@ -904,7 +904,7 @@ routes.materiale = async (id) => {
     if ($("#hardDelMat")) {
       $("#hardDelMat").onclick = async () => {
         if (!(await confirmDialog(
-          `Eliminare DEFINITIVAMENTE "${m.nome}"? Verrà cancellato per sempre dal database e da tutti i dispositivi (ideale per eliminare materiali inseriti per prova).`,
+          `Eliminare DEFINITIVAMENTE "${m.nome}"? VerrÃ  cancellato per sempre dal database e da tutti i dispositivi (ideale per eliminare materiali inseriti per prova).`,
           "Elimina per sempre",
           true
         ))) return;
@@ -943,14 +943,14 @@ routes.giacenze = async (filtroIniziale) => {
   view.innerHTML = `
     <div class="row chips">
       <button class="chip ${filtro === "tutti" ? "active" : ""}" data-f="tutti">Tutti i materiali (${giac.length})</button>
-      <button class="chip ${filtro === "sotto" ? "active" : ""}" data-f="sotto">⚠ Sotto scorta (${sottoList.length})</button>
+      <button class="chip ${filtro === "sotto" ? "active" : ""}" data-f="sotto">âš  Sotto scorta (${sottoList.length})</button>
     </div>
     <input type="search" id="q" placeholder="Cerca materiale, categoria o barcode">
     <div class="card list" id="gList"></div>
     <div class="row pdfbar">
-      <button class="btn" id="pOpen">📄 Apri PDF</button>
-      <button class="btn" id="pPrint">🖨 Stampa</button>
-      <button class="btn" id="pShare">↗ Condividi</button>
+      <button class="btn" id="pOpen">ðŸ“„ Apri PDF</button>
+      <button class="btn" id="pPrint">ðŸ–¨ Stampa</button>
+      <button class="btn" id="pShare">â†— Condividi</button>
     </div>`;
 
   const draw = () => {
@@ -959,10 +959,10 @@ routes.giacenze = async (filtroIniziale) => {
     $("#gList").innerHTML = list.length ? list.map((g) => `<a class="line link ${g.sotto ? "low" : ""}" href="#materiale/${g.id}">
       <div class="info">
         <b>${esc(g.nome)}</b>
-        <small>${esc(g.categoria || "—")} · ${g.rilevato_il ? fmtDT(g.rilevato_il) : "mai rilevato"}</small>
+        <small>${esc(g.categoria || "â€”")} Â· ${g.rilevato_il ? fmtDT(g.rilevato_il) : "mai rilevato"}</small>
       </div>
       <div class="right">
-        <b class="${g.sotto ? "red" : ""}">${g.scatole ?? "–"}</b>
+        <b class="${g.sotto ? "red" : ""}">${g.scatole ?? "â€“"}</b>
         <small>${g.scorta_minima > 0 ? `min: ${g.scorta_minima} sc` : "scatole"}</small>
       </div></a>`).join("")
       : `<p class="muted">${filtro === "sotto" ? "Ottimo! Nessun materiale attualmente sotto scorta." : "Nessun materiale trovato."}</p>`;
@@ -1002,11 +1002,11 @@ routes.storico = async () => {
       <div class="line">
         <a class="info link" href="#inv/${i.id}">
           <b>${i.numero ? `Inventario n. ${i.numero}` : "Inventario (numero in attesa)"}</b>
-          <small>${fmtDT(i.chiuso_at)} · ${esc(i.operatore_nome)}</small>
+          <small>${fmtDT(i.chiuso_at)} Â· ${esc(i.operatore_nome)}</small>
         </a>
         <div class="row">
-          <span>${i.synced ? "✔" : "⏳"}</span>
-          ${ME.ruolo === "master" ? `<button class="btn small danger ghost" data-del-inv="${i.id}" title="Elimina inventario di prova">🗑</button>` : ""}
+          <span>${i.synced ? "âœ”" : "â³"}</span>
+          ${ME.ruolo === "master" ? `<button class="btn small danger ghost" data-del-inv="${i.id}" title="Elimina inventario di prova">ðŸ—‘</button>` : ""}
         </div>
       </div>`).join("") : `<p class="muted">Nessun inventario registrato.</p>`}</div>`;
 
@@ -1054,19 +1054,19 @@ async function inventarioDettaglio(id, banner = "") {
       <div class="row wrap"><span class="pill">${righe.filter((r) => r.esito !== "non_necessario").length} rilevati</span>
         <span class="pill">${righe.filter((r) => r.esito === "non_necessario").length} non necessari</span>
         ${sotto ? `<span class="pill red">${sotto} sotto scorta</span>` : ""}
-        <span class="pill">${inv.synced ? "✔ sincronizzato" : "⏳ in attesa di invio"}</span></div>
+        <span class="pill">${inv.synced ? "âœ” sincronizzato" : "â³ in attesa di invio"}</span></div>
     </div>
-    <div class="row pdfbar"><button class="btn primary" id="pOpen">📄 Apri PDF</button><button class="btn" id="pPrint">🖨 Stampa</button><button class="btn" id="pShare">↗ Condividi</button></div>
+    <div class="row pdfbar"><button class="btn primary" id="pOpen">ðŸ“„ Apri PDF</button><button class="btn" id="pPrint">ðŸ–¨ Stampa</button><button class="btn" id="pShare">â†— Condividi</button></div>
     ${ME.ruolo === "master" ? `
       <div style="margin: 10px 0;">
-        <button class="btn danger ghost block" id="delThisInv">🗑 Elimina definitivamente questo inventario (test)</button>
+        <button class="btn danger ghost block" id="delThisInv">ðŸ—‘ Elimina definitivamente questo inventario (test)</button>
       </div>
     ` : ""}
     <div class="card list">${sorted.map(({ r, m }) => {
       const low = r.esito !== "non_necessario" && m.scorta_minima > 0 && r.scatole < m.scorta_minima;
       return `<div class="line ${low ? "low" : ""} ${r.esito === "non_necessario" ? "dim" : ""}">
-        <div class="info"><b>${esc(m.nome)}</b><small>${r.esito === "non_necessario" ? `non necessario${r.motivo ? ` – ${esc(r.motivo)}` : ""}` : `${r.scatole * r.pezzi_per_scatola} pezzi · ${r.esito}`}</small></div>
-        <div class="right"><b>${r.esito === "non_necessario" ? "–" : r.scatole}</b><small>${m.scorta_minima ? `min ${m.scorta_minima}` : "sc"}</small></div></div>`;
+        <div class="info"><b>${esc(m.nome)}</b><small>${r.esito === "non_necessario" ? `non necessario${r.motivo ? ` â€“ ${esc(r.motivo)}` : ""}` : `${r.scatole * r.pezzi_per_scatola} pezzi Â· ${r.esito}`}</small></div>
+        <div class="right"><b>${r.esito === "non_necessario" ? "â€“" : r.scatole}</b><small>${m.scorta_minima ? `min ${m.scorta_minima}` : "sc"}</small></div></div>`;
     }).join("")}</div>`;
   const make = () => pdf.inventarioPdf({ inv, righe, materiali: mats, operatoreStampa: ME.nome });
   $("#pOpen").onclick = () => { pdf.openPdf(make()); cloud.audit("pdf_inventario", "inventario", inv.id); };
@@ -1103,10 +1103,10 @@ routes.notifiche = async (id) => {
     .filter((n) => n.destinatari !== "master" || ME.ruolo === "master")
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
   view.innerHTML = `
-    ${"Notification" in window && Notification.permission !== "granted" ? `<button class="btn block" id="enN">🔔 Attiva notifiche sul telefono</button>` : ""}
+    ${"Notification" in window && Notification.permission !== "granted" ? `<button class="btn block" id="enN">ðŸ”” Attiva notifiche sul telefono</button>` : ""}
     ${list.length ? `<button class="btn small ghost" id="allRead">Segna tutte come lette</button>` : ""}
     <div class="card list">${list.length ? list.map((n) => `<a class="line link notif ${n.tipo} ${lette.has(n.id) ? "" : "unread"}" href="#notifiche/${n.id}">
-      <div class="info"><b>${n.tipo === "scorta" ? "⚠ " : "📦 "}${esc(n.titolo)}</b><small>${esc(n.testo)}</small></div>
+      <div class="info"><b>${n.tipo === "scorta" ? "âš  " : "ðŸ“¦ "}${esc(n.titolo)}</b><small>${esc(n.testo)}</small></div>
       <div class="right"><small>${fmtDT(n.created_at)}</small></div></a>`).join("")
       : `<p class="muted">Nessuna notifica. ${ME.locale ? "" : "Le notifiche arrivano dopo la sincronizzazione."}</p>`}</div>`;
   $("#enN") && ($("#enN").onclick = attivaNotifiche);
@@ -1127,16 +1127,16 @@ async function attivaNotifiche() {
 routes.menu = async () => {
   setTitle("Menu");
   view.innerHTML = `<div class="card list">
-    <a class="line link" href="#storico"><div class="info"><b>🗂 Storico inventari</b></div></a>
-    ${ME.ruolo === "master" ? `<a class="line link" href="#audit"><div class="info"><b>📋 Registro attività (Audit log)</b><small>chi ha fatto cosa, modifiche ed eliminazioni</small></div></a>` : ""}
-    ${ME.ruolo === "master" && !ME.locale ? `<a class="line link" href="#operatori"><div class="info"><b>👥 Operatori</b><small>approvazione e ruoli</small></div></a>` : ""}
-    <a class="line link" href="#impostazioni"><div class="info"><b>⚙ Impostazioni e backup</b></div></a>
+    <a class="line link" href="#storico"><div class="info"><b>ðŸ—‚ Storico inventari</b></div></a>
+    ${ME.ruolo === "master" ? `<a class="line link" href="#audit"><div class="info"><b>ðŸ“‹ Registro attivitÃ  (Audit log)</b><small>chi ha fatto cosa, modifiche ed eliminazioni</small></div></a>` : ""}
+    ${ME.ruolo === "master" && !ME.locale ? `<a class="line link" href="#operatori"><div class="info"><b>ðŸ‘¥ Operatori</b><small>approvazione e ruoli</small></div></a>` : ""}
+    <a class="line link" href="#impostazioni"><div class="info"><b>âš™ Impostazioni e backup</b></div></a>
   </div>
-  <p class="muted center">Diastock v1.0 · ${esc(ME.nome)}</p>`;
+  <p class="muted center">Diastock v1.0 Â· ${esc(ME.nome)}</p>`;
 };
 
 routes.audit = async () => {
-  setTitle("Registro attività");
+  setTitle("Registro attivitÃ ");
   if (ME.ruolo !== "master") { go("menu"); return; }
 
   const invs = await inventariChiusi();
@@ -1161,34 +1161,34 @@ routes.audit = async () => {
 
   view.innerHTML = `
     <div class="row between">
-      <small class="muted">${cutoffDate ? `Attività degli ultimi 20 inventari (dal ${fmtDT(cutoffDate)})` : "Ultime azioni registrate sul sistema"}</small>
+      <small class="muted">${cutoffDate ? `AttivitÃ  degli ultimi 20 inventari (dal ${fmtDT(cutoffDate)})` : "Ultime azioni registrate sul sistema"}</small>
       <div class="row">
-        ${cutoffDate ? `<button class="btn small danger ghost" id="purgeAudit" title="Elimina dal database le annotazioni precedenti agli ultimi 20 inventari">🧹 Pulisci vecchie</button>` : ""}
-        <button class="btn small ghost" id="refAudit">⟳ Aggiorna</button>
+        ${cutoffDate ? `<button class="btn small danger ghost" id="purgeAudit" title="Elimina dal database le annotazioni precedenti agli ultimi 20 inventari">ðŸ§¹ Pulisci vecchie</button>` : ""}
+        <button class="btn small ghost" id="refAudit">âŸ³ Aggiorna</button>
       </div>
     </div>
     <div class="card list">
       ${logs.length ? logs.map(l => {
         const opNome = l.operatori?.nome || "Operatore";
-        const dett = l.dettagli ? Object.entries(l.dettagli).map(([k, v]) => `${k}: ${v}`).join(" · ") : "";
+        const dett = l.dettagli ? Object.entries(l.dettagli).map(([k, v]) => `${k}: ${v}`).join(" Â· ") : "";
         const isDel = /elimina|dismess/i.test(l.azione);
         return `<div class="line ${isDel ? "low" : ""}">
           <div class="info">
-            <b>${isDel ? "🗑 " : "🔹 "}${esc(l.azione.replace(/_/g, " "))}</b>
-            <small>${esc(opNome)} · ${fmtDT(l.eseguito_at)}</small>
+            <b>${isDel ? "ðŸ—‘ " : "ðŸ”¹ "}${esc(l.azione.replace(/_/g, " "))}</b>
+            <small>${esc(opNome)} Â· ${fmtDT(l.eseguito_at)}</small>
             ${dett ? `<small class="muted">${esc(dett)}</small>` : ""}
           </div>
         </div>`;
-      }).join("") : `<p class="muted">Nessuna attività registrata negli ultimi 20 inventari.</p>`}
+      }).join("") : `<p class="muted">Nessuna attivitÃ  registrata negli ultimi 20 inventari.</p>`}
     </div>
   `;
 
   $("#refAudit") && ($("#refAudit").onclick = () => render());
   $("#purgeAudit") && ($("#purgeAudit").onclick = async () => {
-    if (!(await confirmDialog("Eliminare definitivamente dal database tutte le annotazioni più vecchie del 20° inventario?", "Pulisci registro", true))) return;
+    if (!(await confirmDialog("Eliminare definitivamente dal database tutte le annotazioni piÃ¹ vecchie del 20Â° inventario?", "Pulisci registro", true))) return;
     try {
       await cloud.cleanOldAuditLogs();
-      toast("Annotazioni più vecchie rimosse con successo");
+      toast("Annotazioni piÃ¹ vecchie rimosse con successo");
       render();
     } catch (e) {
       toast("Errore durante la pulizia: " + (e.message || e), 4000);
@@ -1202,20 +1202,20 @@ routes.impostazioni = async () => {
   view.innerHTML = `
     <div class="card">
       <small class="muted">Operatore</small>
-      <div><b>${esc(ME.nome)}</b> · ${ME.ruolo}${ME.email ? ` · ${esc(ME.email)}` : ""}</div>
+      <div><b>${esc(ME.nome)}</b> Â· ${ME.ruolo}${ME.email ? ` Â· ${esc(ME.email)}` : ""}</div>
       <button class="btn small" id="rename">Modifica nome</button>
     </div>
     <div class="card">
       <h3>Sincronizzazione e backup</h3>
-      <small class="muted">${ME.locale ? "Modalità locale: configura Supabase in config.js per sincronizzare." :
+      <small class="muted">${ME.locale ? "ModalitÃ  locale: configura Supabase in config.js per sincronizzare." :
         `Ultima sincronizzazione: ${last ? fmtDT(last) : "mai"}<br>Operazioni in coda: ${pend}${cloud.state.lastError ? `<br>Ultimo errore: ${esc(cloud.state.lastError)}` : ""}`}</small>
-      ${!ME.locale ? `<button class="btn block" id="sync">⟳ Sincronizza ora</button>` : ""}
-      <button class="btn block ghost" id="export">⬇ Esporta backup locale (JSON)</button>
+      ${!ME.locale ? `<button class="btn block" id="sync">âŸ³ Sincronizza ora</button>` : ""}
+      <button class="btn block ghost" id="export">â¬‡ Esporta backup locale (JSON)</button>
     </div>
     <div class="card">
       <h3>Notifiche</h3>
       <small class="muted">Stato: ${"Notification" in window ? Notification.permission : "non supportate (su iPhone installa l'app nella schermata Home)"}</small>
-      <button class="btn block" id="notif">🔔 Attiva notifiche</button>
+      <button class="btn block" id="notif">ðŸ”” Attiva notifiche</button>
     </div>
     <div class="card"><small class="muted">ID dispositivo: ${dev}</small></div>
     <button class="btn danger block" id="logout">Esci</button>`;
@@ -1258,7 +1258,7 @@ routes.operatori = async () => {
   view.innerHTML = `
     <div class="row between">
       <small class="muted">Gestione operatori e PIN</small>
-      <button class="btn small primary" id="addOp">＋ Nuovo operatore</button>
+      <button class="btn small primary" id="addOp">ï¼‹ Nuovo operatore</button>
     </div>
     <div class="card list">${list.map((p) => `<div class="line" data-id="${p.id}">
       <div class="info"><b>${esc(p.nome)}</b><small>Ruolo: ${p.ruolo}</small></div>
@@ -1307,7 +1307,7 @@ routes.operatori = async () => {
 // ------------------------------------------------------------------
 async function renderLogin(msg = "") {
   document.body.classList.add("auth");
-  setTitle("Diastock – Accesso");
+  setTitle("Diastock â€“ Accesso");
   const ops = await cloud.getOperatoriList();
 
   view.innerHTML = `<div class="card">
@@ -1324,10 +1324,10 @@ async function renderLogin(msg = "") {
         <input name="nome" required placeholder="es. Coordinatore Master" value="Coordinatore Master">
       `}
       <label>PIN (4 cifre)</label>
-      <input name="pin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required placeholder="••••" autocomplete="current-password" autofocus>
+      <input name="pin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required placeholder="â€¢â€¢â€¢â€¢" autocomplete="current-password" autofocus>
       <button class="btn primary block">Accedi</button>
     </form>
-    <button class="btn ghost block" id="reg">＋ Registra nuovo operatore</button>
+    <button class="btn ghost block" id="reg">ï¼‹ Registra nuovo operatore</button>
   </div>`;
 
   $("#lf").onsubmit = async (e) => {
@@ -1352,7 +1352,7 @@ function renderRegister() {
       <label>Nome e cognome</label>
       <input name="nome" required placeholder="es. Mario Rossi">
       <label>PIN a 4 cifre (es. 1234)</label>
-      <input name="pin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required placeholder="••••" autocomplete="new-password">
+      <input name="pin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required placeholder="â€¢â€¢â€¢â€¢" autocomplete="new-password">
       <button class="btn primary block">Salva e accedi</button>
     </form>
     <button class="btn ghost block" id="back">Torna all'accesso</button>
@@ -1420,3 +1420,5 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (e) => { if (e.data?.url) location.hash = e.data.url.split("#")[1] || ""; });
 }
 boot();
+
+
