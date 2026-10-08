@@ -833,8 +833,11 @@ routes.materiali = async () => {
   });
   $("#printMat") && ($("#printMat").onclick = async () => {
     const { doc, filename } = pdf.materialiPdf({ materiali: mats, operatoreStampa: ME.nome });
-    const acts = [{ label: "Apri / Salva PDF", val: "open" }];
-    if (pdf.pushAvailable()) acts.push({ label: "Stampa (AirPrint/Stampante)", val: "print" }, { label: "Condividi (WhatsApp/Email)", val: "share" });
+    const acts = [
+      { label: "Apri / Salva PDF", val: "open" },
+      { label: "Stampa (AirPrint/Stampante)", val: "print" },
+      { label: "Condividi (WhatsApp/Email)", val: "share" }
+    ];
     const sc = await actionSheet(acts);
     if (sc === "open") await pdf.openPdf({ doc, filename });
     if (sc === "print") await pdf.printPdf({ doc, filename });
