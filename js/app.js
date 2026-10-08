@@ -635,9 +635,6 @@ async function renderInventario(inv) {
 
   $("#confermaChiusura") && ($("#confermaChiusura").onclick = async () => {
     const note = $("#revNotes") ? $("#revNotes").value.trim() : "";
-    for (const m of mancanti) {
-      await setRiga(inv, m, 0, "non_necessario", "non rilevato in inventario");
-    }
     await finalizzaChiusura(inv, note);
   });
 }
@@ -683,7 +680,7 @@ async function onScan(inv, code, manual = false) {
     const esito = manual ? "manuale" : "scansionato";
     let qty;
     if (ask) {
-      qty = await qtyDialog(m, r && r.esito !== "non_necessario" ? r.scatole : 1);
+      qty = await qtyDialog(m, "");
       if (qty == null) return;
     } else {
       qty = r && r.esito !== "non_necessario" ? r.scatole + 1 : 1;
@@ -768,7 +765,10 @@ routes.materiali = async () => {
     </div>
     <div class="row"><input type="search" id="q" placeholder="Cerca nome, categoria o barcode" class="grow">
       <button class="btn" id="scanSearch" title="Cerca con scanner">📷</button></div>
-    <button class="btn primary block" id="addMat">＋ Nuovo materiale</button>
+    <div class="row">
+      <button class="btn primary grow" id="addMat">＋ Nuovo materiale</button>
+      <button class="btn ghost" id="printMat" title="Stampa elenco materiali in uso">🖨 Stampa elenco</button>
+    </div>
     <div id="dismessiBar"></div>
     <div class="card list" id="matList"></div>`;
 
@@ -830,6 +830,15 @@ routes.materiali = async () => {
     c.classList.add("active");
     filtro = c.dataset.f;
     draw();
+  });
+  $("#printMat") && ($("#printMat").onclick = async () => {
+    const { doc, filename } = pdf.materialiPdf({ materiali: mats, operatoreStampa: ME.nome });
+    const acts = [{ label: "Apri / Salva PDF", val: "open" }];
+    if (pdf.pushAvailable()) acts.push({ label: "Stampa (AirPrint/Stampante)", val: "print" }, { label: "Condividi (WhatsApp/Email)", val: "share" });
+    const sc = await actionSheet(acts);
+    if (sc === "open") await pdf.openPdf({ doc, filename });
+    if (sc === "print") await pdf.printPdf({ doc, filename });
+    if (sc === "share") await pdf.sharePdf({ doc, filename });
   });
   $("#addMat").onclick = async () => { const m = await nuovoMaterialeDialog(""); if (m) render(); };
   $("#scanSearch").onclick = async () => {

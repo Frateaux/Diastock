@@ -102,6 +102,23 @@ export function giacenzePdf({ giacenze, operatoreStampa }) {
   return { doc, filename: `Diastock_giacenze_${new Date().toISOString().slice(0, 10)}.pdf` };
 }
 
+export function materialiPdf({ materiali, operatoreStampa }) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const mats = materiali.filter(m => m.attivo !== false).sort((a, b) => (a.categoria || "").localeCompare(b.categoria || "") || a.nome.localeCompare(b.nome));
+  const y = header(doc, "Elenco Materiali in Uso", [`Tutti i materiali attualmente configurati in magazzino`]);
+  
+  doc.autoTable({
+    startY: y + 2,
+    head: [["Materiale", "Categoria", "Barcode", "Pezzi per scatola", "Scorta Minima"]],
+    body: mats.map((m) => [m.nome, m.categoria || "", m.barcode, m.pezzi_per_scatola, m.scorta_minima || "0"]),
+    styles: { fontSize: 9, cellPadding: 1.6 },
+    headStyles: { fillColor: [14, 116, 144] }
+  });
+  footer(doc, operatoreStampa);
+  return { doc, filename: `Diastock_materiali.pdf` };
+}
+
 // --- azioni sul PDF ---
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
