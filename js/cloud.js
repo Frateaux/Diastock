@@ -237,12 +237,28 @@ async function pull(prof) {
     .order("chiuso_at", { ascending: false }).limit(50);
   if (e1) throw e1;
   const ids = invs.map((i) => i.id);
+  
+  // Rimuovi solo le righe e gli inventari già sincronizzati, per evitare perdite di dati se la funzione fallisce a metà
+  const allRighe = await db.all("righe");
+  const localInvs = await db.all("inventari");
+  
+  const invsToDelete = localInvs.filter((i) => i.stato === "chiuso" && i.synced);
+  const invIdsToDelete = new Set(invsToDelete.map(i => i.id));
+  
+  for (const r of allRighe) {
+    if (invIdsToDelete.has(r.inventario_id)) {
+      await db.del("righe", r.id);
+    }
+  }
+  for (const i of invsToDelete) {
+    await db.del("inventari", i.id);
+  }
+
   if (ids.length) {
     const righe = await fetchAll(() => sb.from("righe_inventario").select("*").in("inventario_id", ids).order("id"));
-    await db.clear("righe");
     await db.bulkPut("righe", righe);
   }
-  await db.clear("inventari");
+  
   await db.bulkPut("inventari", invs.map((i) => ({ ...i, stato: "chiuso", synced: true })));
 
   // pulizia audit log: limitiamo agli ultimi 20 inventari (elimina annotazioni più vecchie)
