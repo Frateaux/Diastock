@@ -253,7 +253,7 @@ routes.home = async () => {
         <div><b>${ultimo.numero ? `n. ${ultimo.numero}` : "in attesa di numero"}</b> · ${fmtDT(ultimo.chiuso_at)}</div>
         <small>${esc(ultimo.operatore_nome)}${ultimo.synced ? "" : " · ⏳ da sincronizzare"}</small></a>` : ""}
     ${ME.ruolo === "master" && sotto.length ? `<div class="card"><h3>⚠ Sotto scorta</h3>
-        ${sotto.slice(0, 8).map((g) => `<div class="li"><span>${esc(g.nome)}</span><b class="red">${g.scatole ?? 0}/${g.scorta_minima}</b></div>`).join("")}</div>` : ""}
+        ${sotto.map((g) => `<div class="li"><span>${esc(g.nome)}</span><b class="red">${g.scatole ?? 0}/${g.scorta_minima}</b></div>`).join("")}</div>` : ""}
     ${!ME.locale ? `<button class="btn block ghost" id="syncNow">⟳ Sincronizza ora</button>` : ""}`;
   $("#switchUser") && ($("#switchUser").onclick = async () => {
     await cloud.signOut();
