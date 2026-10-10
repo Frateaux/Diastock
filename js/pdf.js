@@ -105,7 +105,7 @@ export function giacenzePdf({ giacenze, operatoreStampa }) {
 export function materialiPdf({ materiali, operatoreStampa }) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "mm", format: "a4" });
-  const mats = materiali.filter(m => m.attivo !== false).sort((a, b) => (a.categoria || "").localeCompare(b.categoria || "") || a.nome.localeCompare(b.nome));
+  const mats = materiali.sort((a, b) => (a.categoria || "").localeCompare(b.categoria || "") || a.nome.localeCompare(b.nome));
   const y = header(doc, "Elenco Materiali in Uso", [`Tutti i materiali attualmente configurati in magazzino`]);
   
   doc.autoTable({

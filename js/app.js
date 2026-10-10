@@ -772,10 +772,12 @@ routes.materiali = async () => {
     <div id="dismessiBar"></div>
     <div class="card list" id="matList"></div>`;
 
-  const draw = () => {
+  let currentList = [];
+    const draw = () => {
     const ql = ($("#q")?.value || "").toLowerCase();
     const baseList = filtro === "attivi" ? attivi : filtro === "dismessi" ? dismessi : mats;
     const list = baseList.filter((m) => !ql || `${m.nome} ${m.categoria} ${m.barcode}`.toLowerCase().includes(ql));
+      currentList = list;
 
     const bar = $("#dismessiBar");
     if (bar) {
@@ -832,7 +834,7 @@ routes.materiali = async () => {
     draw();
   });
   $("#printMat") && ($("#printMat").onclick = async () => {
-    const { doc, filename } = pdf.materialiPdf({ materiali: mats, operatoreStampa: ME.nome });
+    const { doc, filename } = pdf.materialiPdf({ materiali: currentList, operatoreStampa: ME.nome });
     const acts = [
       { label: "Apri / Salva PDF", val: "open" },
       { label: "Stampa (AirPrint/Stampante)", val: "print" },
@@ -956,9 +958,11 @@ routes.giacenze = async (filtroIniziale) => {
       <button class="btn" id="pShare">↗ Condividi</button>
     </div>`;
 
-  const draw = () => {
+  let currentGiacList = [];
+    const draw = () => {
     const q = $("#q").value.toLowerCase();
     const list = giac.filter((g) => (filtro === "tutti" || g.sotto) && (!q || `${g.nome} ${g.categoria} ${g.barcode}`.toLowerCase().includes(q)));
+      currentGiacList = list;
     $("#gList").innerHTML = list.length ? list.map((g) => `<a class="line link ${g.sotto ? "low" : ""}" href="#materiale/${g.id}">
       <div class="info">
         <b>${esc(g.nome)}</b>
@@ -982,8 +986,7 @@ routes.giacenze = async (filtroIniziale) => {
   });
 
   const make = () => {
-    const datiExport = filtro === "sotto" ? sottoList : giac;
-    return pdf.giacenzePdf({ giacenze: datiExport, operatoreStampa: ME.nome });
+    return pdf.giacenzePdf({ giacenze: currentGiacList, operatoreStampa: ME.nome });
   };
   $("#pOpen").onclick = () => { pdf.openPdf(make()); cloud.audit("pdf_giacenze", "report", null); };
   $("#pPrint").onclick = () => { pdf.printPdf(make()); cloud.audit("pdf_giacenze_stampa", "report", null); };
